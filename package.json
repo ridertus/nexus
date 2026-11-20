@@ -1,0 +1,25 @@
+{
+  "name": "nexus-finance",
+  "version": "0.2.0",
+  "description": "NEXUS — personal finance engine (solo edition)",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --import tsx --test test/*.test.ts",
+    "nexus": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit && tsc -p web/tsconfig.json",
+    "build:web": "node web/build.mjs"
+  },
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "esbuild": "^0.25.12",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  },
+  "type": "module",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "nexus": "dist/cli.js"
+  }
+}

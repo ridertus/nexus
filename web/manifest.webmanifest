@@ -1,0 +1,21 @@
+{
+  "name": "NEXUS — Personal Finance OS",
+  "short_name": "NEXUS",
+  "description": "การเงินส่วนตัว ข้อมูลอยู่ในเครื่องเท่านั้น",
+  "lang": "th",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f2f2f2",
+  "theme_color": "#191919",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "จดรายจ่าย", "short_name": "จ่าย", "url": "./?add=expense", "icons": [{ "src": "icon-192.png", "sizes": "192x192" }] },
+    { "name": "จดรายรับ", "short_name": "รับ", "url": "./?add=income", "icons": [{ "src": "icon-192.png", "sizes": "192x192" }] }
+  ]
+}
