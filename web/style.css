@@ -1,82 +1,133 @@
 /* =====================================================================
-   NEXUS — Personal Finance OS · UI v2
-   Visual language taken from the Arknights: Endfield site's structure
-   (measured from the live page): light paper ground, near-black ink,
-   ONE pure signal yellow used as a solid band (never as text on white),
-   wide heavy headlines, // code labels, black boxed date tags,
-   diagonal hatching, thin magenta/yellow/cyan lines, n / N counters.
-   Usability rules win every conflict: 44px targets, AA contrast,
-   Thai-first labels, decoration is aria-hidden.
+   NEXUS — Personal Finance OS · UI v3 "HUD"
+   Dark-first HUD: fine grey surfaces, light "plates" on dark ground,
+   ONE signal yellow (primary button · lead bar · key numerals/units),
+   Barlow numerals, mono system labels, hatch / ticks / tri-strip motifs.
+   Spec: NEXUS-REDESIGN.md. Usability rules win every conflict:
+   44px targets, AA contrast (min text #8A8A8A on dark), Thai-first labels,
+   decoration is aria-hidden, prefers-reduced-motion turns motion off.
    ===================================================================== */
 
-:root {
-  --bg: #f2f2f2;
-  --surface: #fafafa;
-  --surface-2: #ffffff;
-  --sunken: #e9e9e9;
-  --line: #d9d9d9;
-  --line-2: #bdbdbd;
-  --ink: #191919;
-  --ink-2: #5c5c5c;          /* 6.4:1 on --surface */
-  --ink-3: #7c7c7c;          /* decorative micro only */
-  --block: #191919;          /* solid black blocks: date tags, rail, nav */
-  --block-ink: #fafafa;
-  --block-ink-2: #a6a6a6;
-  --signal: #fffa00;         /* Endfield yellow — fills only */
-  --signal-ink: #000;
-  --pos: #08875c;
-  --warn: #b25f00;
-  --neg: #d0281b;
-  --neg-bg: #fdecea;
-  --warn-bg: #fff4e0;
-  --magenta: #e4007f;
-  --cyan: #00b4c8;
-  --chart-in: #1aa3b2;       /* validated pair (CVD ΔE 16) */
-  --chart-out: #a8255f;
-  --hatch: rgba(25,25,25,.55);
-  --shadow: 0 1px 0 rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.06);
+:root, :root[data-theme="dark"] {
+  /* surfaces */
+  --bg: #111111;
+  --surface: #1A1A1A;        /* panel */
+  --surface-2: #212121;      /* control / field */
+  --sunken: #161616;         /* nav, dark tags */
+  --line: #2E2E2E;
+  --line-2: #3A3A3A;         /* field ring */
+  --sep: #333333;
 
-  --f-display: 'Chakra Petch', 'IBM Plex Sans Thai', system-ui, sans-serif;
-  --f-body: 'IBM Plex Sans Thai', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --f-mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', monospace;
+  /* ink */
+  --ink: #F4F4F4;            /* titles */
+  --ink-body: #EEEEEE;
+  --ink-2: #A9A9A9;          /* description */
+  --ink-3: #8A8A8A;          /* lowest allowed text colour (never #777) */
 
-  --cut: 12px;
-  --r: 2px;
+  /* light plates */
+  --plate-hi: #E4E5E0;
+  --plate: #D3D4CF;
+  --plate-lo: #C6C7C2;
+  --plate-side: linear-gradient(#C6C7C2, #B3B4AF);
+  --plate-body: linear-gradient(#E0E1DC, #D0D1CC);
+  --plate-ink: #111111;
+  --plate-ink-2: #55564F;
+  --plate-highlight: inset 0 1px 0 rgba(255,255,255,.75);
+  --done-body: linear-gradient(#5E5E5E, #525252);
+
+  /* signal yellow — primary button · lead bar · key numerals/units only */
+  --signal: #FFFA00;
+  --signal-hi: #FFFC6B;
+  --signal-lo: #E9CF12;
+  --signal-ink: #111111;
+  --btn-primary: linear-gradient(#FFFC6B, #FFFA00 40%, #E9CF12);
+
+  /* status */
+  --pos: #8CE03C;
+  --info: #22A6F2;
+  --warn: #F97501;
+  --neg: #E5383B;            /* fills; chip uses #C8282C + white */
+  --neg-text: #FF8A8C;       /* neg as text on dark */
+
+  /* motifs */
+  --tri-1: #FF1AAC; --tri-2: #00FFA2; --tri-3: #FFFA00;
+  --hatch: repeating-linear-gradient(-45deg, #3A3A3A 0 1px, transparent 1px 3.5px);
+  --ticks: repeating-linear-gradient(90deg, #3A3A3A 0 1px, transparent 1px 8px);
+
+  /* type */
+  --f-num: 'Barlow', 'IBM Plex Sans Thai', system-ui, sans-serif;
+  --f-body: 'IBM Plex Sans Thai', system-ui, sans-serif;
+  --f-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* shape */
+  --cut: 22px;
+  --cut-sm: 14px;
+  --cut-xs: 8px;
+  --r: 0;
+
+  /* motion */
+  --ease: cubic-bezier(.2,.8,.2,1);
+  --snap: cubic-bezier(.2,.9,.1,1);
+  --t-enter: .38s; --t-leave: .13s; --t-hover: .22s; --t-press: .10s;
+
+  /* layout */
   --nav-h: 64px;
   --safe-b: env(safe-area-inset-bottom, 0px);
-  color-scheme: light;
+
+  /* support tokens (not in the spec's list; derived from it) */
+  --well: #161616;           /* icon wells, pressed rows (--sunken is the dark nav/chip colour) */
+  --track: #252525;          /* meter / progress track */
+  --neg-bg: #2A1415;
+  --warn-bg: #2A1C0E;
+  --chart-in: #22A6F2;       /* = --info */
+  --chart-out: #F97501;      /* = --warn; blue/orange differ in lightness too */
+  --shadow: none;
+
+  /* legacy aliases — kept so not-yet-restyled rules render sensibly; removed in the a11y pass */
+  --f-display: var(--f-num);
+  --block: #161616;          /* dark chip — same in both themes */
+  --block-ink: #EEEEEE;
+  --block-ink-2: #A9A9A9;
+  --magenta: var(--tri-1);
+  --cyan: var(--info);
+  color-scheme: dark;
 }
 
-:root[data-theme="dark"] {
-  --bg: #0d0d0e;
-  --surface: #161618;
-  --surface-2: #1d1d20;
-  --sunken: #111113;
-  --line: #2c2c30;
-  --line-2: #45454b;
-  --ink: #f2f2f2;
-  --ink-2: #a8a8ad;
-  --ink-3: #7a7a80;
-  --block: #f2f2f2;
-  --block-ink: #111;
-  --block-ink-2: #555;
-  --pos: #3ccf91;
-  --warn: #ffad47;
-  --neg: #ff6b5e;
-  --neg-bg: #3a1714;
-  --warn-bg: #36260f;
-  --chart-in: #26a6b3;
-  --chart-out: #a8336a;
-  --hatch: rgba(242,242,242,.45);
-  --shadow: 0 1px 0 rgba(255,255,255,.03), 0 8px 24px rgba(0,0,0,.4);
-  color-scheme: dark;
+/* Light: only surface / ink / line flip. Plates, signal and dark chips stay. */
+:root[data-theme="light"] {
+  --bg: #ECECE9;
+  --surface: #F7F7F5;
+  --surface-2: #FFFFFF;
+  --sunken: #191919;         /* nav stays dark */
+  --line: #D6D6D2;
+  --line-2: #BDBDB8;
+  --sep: #CFCFCA;
+  --ink: #121212;
+  --ink-body: #1A1A1A;
+  --ink-2: #4F4F4F;
+  --ink-3: #666666;
+  /* status as text on light ground: darker shades. Yellow is never text here. */
+  --pos: #3F8F14;
+  --info: #0B7DC0;
+  --warn: #D05A00;
+  --neg: #C8282C;
+  --neg-text: #C8282C;
+  --hatch: repeating-linear-gradient(-45deg, #BDBDB8 0 1px, transparent 1px 3.5px);
+  --ticks: repeating-linear-gradient(90deg, #BDBDB8 0 1px, transparent 1px 8px);
+  --well: #E4E4E0;
+  --track: #DCDCD7;
+  --neg-bg: #FBE9E9;
+  --warn-bg: #FFF1E2;
+  --chart-in: #0B7DC0;
+  --chart-out: #D05A00;
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   font-family: var(--f-body); font-size: 15px; line-height: 1.5;
-  background: var(--bg); color: var(--ink);
+  background: var(--bg); color: var(--ink-body);
   -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;
   min-height: 100dvh;
 }
@@ -157,27 +208,25 @@ button { cursor: pointer; background: none; border: 0; }
 .cap-bar { display: flex; height: 14px; margin-top: 16px; gap: 2px; background: transparent; }
 .cap-bar > i { display: block; height: 100%; min-width: 0; }
 .cap-bar .free { background: var(--signal); outline: 1px solid rgba(0,0,0,.15); outline-offset: -1px; }
-.cap-bar .lock { background: repeating-linear-gradient(135deg, var(--hatch) 0 2px, transparent 2px 6px), var(--sunken); }
-.cap-bar .lock.goals { background: repeating-linear-gradient(45deg, var(--cyan) 0 2px, transparent 2px 6px), var(--sunken); }
-.cap-bar .lock.tax { background: repeating-linear-gradient(135deg, var(--magenta) 0 2px, transparent 2px 6px), var(--sunken); }
+.cap-bar .lock { background: repeating-linear-gradient(135deg, var(--line-2) 0 2px, transparent 2px 6px), var(--well); }
+.cap-bar .lock.goals { background: repeating-linear-gradient(45deg, var(--cyan) 0 2px, transparent 2px 6px), var(--well); }
+.cap-bar .lock.tax { background: repeating-linear-gradient(135deg, var(--magenta) 0 2px, transparent 2px 6px), var(--well); }
 .cap-legend { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; margin-top: 10px; }
 .cap-legend div { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-2); min-width: 0; }
 .cap-legend div b { margin-left: auto; color: var(--ink); font-family: var(--f-display); font-weight: 600; font-variant-numeric: tabular-nums; }
 .sw { width: 12px; height: 12px; flex-shrink: 0; }
 .sw.free { background: var(--signal); outline: 1px solid rgba(0,0,0,.2); outline-offset: -1px; }
-.sw.bills { background: repeating-linear-gradient(135deg, var(--hatch) 0 2px, transparent 2px 4px), var(--sunken); }
-.sw.goals { background: repeating-linear-gradient(45deg, var(--cyan) 0 2px, transparent 2px 4px), var(--sunken); }
-.sw.tax { background: repeating-linear-gradient(135deg, var(--magenta) 0 2px, transparent 2px 4px), var(--sunken); }
+.sw.bills { background: repeating-linear-gradient(135deg, var(--line-2) 0 2px, transparent 2px 4px), var(--well); }
+.sw.goals { background: repeating-linear-gradient(45deg, var(--cyan) 0 2px, transparent 2px 4px), var(--well); }
+.sw.tax { background: repeating-linear-gradient(135deg, var(--magenta) 0 2px, transparent 2px 4px), var(--well); }
 
 /* today strip */
 .today { display: flex; align-items: center; gap: 14px; background: var(--block); color: var(--block-ink); padding: 12px 16px; }
 .today .lab { font-size: 12.5px; color: var(--block-ink-2); }
 .today .val { font-family: var(--f-display); font-weight: 700; font-size: 24px; line-height: 1.1; }
 .today .val.over { color: #ff7a6e; }
-:root[data-theme="dark"] .today .val.over { color: #c4170b; }
 .today .meter { flex: 1; min-width: 70px; }
 .today .meter .bar { height: 6px; background: rgba(255,255,255,.18); position: relative; overflow: hidden; }
-:root[data-theme="dark"] .today .meter .bar { background: rgba(0,0,0,.15); }
 .today .meter .bar i { position: absolute; inset: 0 auto 0 0; background: var(--signal); }
 .today .meter .bar i.over { background: #ff5a4c; }
 .today .meter .t { font-size: 11px; color: var(--block-ink-2); margin-top: 5px; display: flex; justify-content: space-between; font-family: var(--f-mono); }
@@ -193,9 +242,9 @@ button { cursor: pointer; background: none; border: 0; }
 /* ---------------- rows ---------------- */
 .rows > * + * { border-top: 1px solid var(--line); }
 .row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; min-height: 60px; width: 100%; text-align: left; }
-button.row:active { background: var(--sunken); }
-@media (hover: hover) { button.row:hover { background: color-mix(in srgb, var(--sunken) 60%, transparent); } }
-.row .ic { width: 38px; height: 38px; display: grid; place-items: center; background: var(--sunken); border: 1px solid var(--line); flex-shrink: 0; color: var(--ink); }
+button.row:active { background: var(--well); }
+@media (hover: hover) { button.row:hover { background: color-mix(in srgb, var(--well) 60%, transparent); } }
+.row .ic { width: 38px; height: 38px; display: grid; place-items: center; background: var(--well); border: 1px solid var(--line); flex-shrink: 0; color: var(--ink); }
 .row .ic svg { width: 19px; height: 19px; }
 .row > svg, .row .chev svg, .row .chev { width: 20px; height: 20px; flex-shrink: 0; }
 .row > svg { color: var(--ink); }
@@ -216,13 +265,13 @@ button.row:active { background: var(--sunken); }
 .dtag { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; width: 48px; height: 42px; background: var(--block); color: var(--block-ink); flex-shrink: 0; }
 .dtag b { font-family: var(--f-display); font-weight: 700; font-size: 17px; line-height: 1; }
 .dtag span { font-family: var(--f-mono); font-size: 9px; letter-spacing: .1em; color: var(--block-ink-2); margin-top: 2px; }
-.dtag.paid { background: var(--sunken); color: var(--ink-3); }
+.dtag.paid { background: var(--well); color: var(--ink-3); }
 .dtag.paid span { color: var(--ink-3); }
 .dtag.late { background: var(--neg); color: #fff; }
 .dtag.late span { color: rgba(255,255,255,.8); }
 
 /* segmented budget bar (10 cells, like the reference's segmented tracks) */
-.seg { height: 8px; margin-top: 7px; position: relative; background: var(--sunken); overflow: hidden; }
+.seg { height: 8px; margin-top: 7px; position: relative; background: var(--track); overflow: hidden; }
 .seg i { position: absolute; inset: 0 auto 0 0; background: var(--ink); }
 .seg i.warn { background: var(--warn); }
 .seg i.over { background: var(--neg); }
@@ -270,7 +319,7 @@ button.row:active { background: var(--sunken); }
 .goal .figs { display: flex; align-items: baseline; gap: 6px; margin-top: 10px; }
 .goal .figs .num { font-size: 22px; }
 .goal .figs .muted { font-size: 13px; }
-.goal .gbar { height: 10px; background: var(--sunken); margin-top: 8px; position: relative; overflow: hidden; }
+.goal .gbar { height: 10px; background: var(--track); margin-top: 8px; position: relative; overflow: hidden; }
 .goal .gbar i { position: absolute; inset: 0 auto 0 0; background: repeating-linear-gradient(45deg, var(--cyan) 0 3px, color-mix(in srgb, var(--cyan) 70%, #000) 3px 5px); }
 .goal .meta { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; color: var(--ink-2); margin-top: 8px; flex-wrap: wrap; }
 .goal .acts { margin-top: 12px; display: flex; gap: 8px; }
@@ -347,11 +396,11 @@ button.row:active { background: var(--sunken); }
 .cat[aria-pressed="true"] { background: var(--signal); color: #000; border-color: #000; }
 .keypad { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border-top: 1px solid var(--line); flex-shrink: 0; }
 .keypad button { height: 52px; background: var(--surface-2); font-family: var(--f-display); font-size: 22px; font-weight: 600; }
-.keypad button:active { background: var(--sunken); }
+.keypad button:active { background: var(--well); }
 .keypad button svg { width: 24px; height: 24px; margin: 0 auto; display: block; }
 .keypad .op { background: var(--surface); color: var(--ink-2); font-size: 20px; }
 .keypad .save { grid-row: span 2; height: auto; background: var(--signal); color: #000; font-family: var(--f-body); font-size: 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
-.keypad .save[disabled] { background: var(--sunken); color: var(--ink-3); }
+.keypad .save[disabled] { background: var(--well); color: var(--ink-3); }
 .keypad .save small { font-size: 11px; font-weight: 500; }
 .qa-hint { font-size: 12px; color: var(--ink-2); text-align: center; padding: 6px 0 0; min-height: 22px; }
 .field { display: block; margin-bottom: 14px; }
@@ -371,7 +420,6 @@ button.row:active { background: var(--sunken); }
 }
 .toast.on { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
 .toast button { white-space: nowrap; flex-shrink: 0; color: var(--signal); font-weight: 600; min-height: 44px; padding: 0 10px; display: flex; align-items: center; gap: 6px; }
-:root[data-theme="dark"] .toast button { color: #000; text-decoration: underline; }
 .toast button svg { width: 16px; height: 16px; }
 .toast.err { background: var(--neg); color: #fff; }
 
@@ -410,7 +458,6 @@ table.bands tr.hit td:first-child { box-shadow: inset 4px 0 0 var(--signal); }
 .demo-bar { background: repeating-linear-gradient(135deg, var(--signal) 0 10px, #000 10px 20px); padding: 3px 0; }
 .demo-bar .in { background: var(--block); color: var(--block-ink); display: flex; align-items: center; gap: 10px; padding: 6px 12px; font-size: 12.5px; }
 .demo-bar button { margin-left: auto; color: var(--signal); font-weight: 600; text-decoration: underline; min-height: 32px; }
-:root[data-theme="dark"] .demo-bar button { color: #000; }
 
 /* ======================= DESKTOP ======================= */
 @media (min-width: 900px) {

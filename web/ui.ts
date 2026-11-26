@@ -64,11 +64,25 @@ export interface Prefs {
   demo?: boolean;
   onboarded?: boolean;
   dismissInstall?: boolean;
+  /** UI v3 theme migration done (a stored 'auto' from v2 was moved to 'dark' once). */
+  themeV3?: boolean;
 }
 const PREF_KEY = 'nexus.prefs';
+/**
+ * Dark is the default. v2 saved the whole prefs object, so 'auto' was stored even when
+ * nobody chose it: move that to 'dark' once (Decision 4); an 'auto' picked after that stays.
+ * Keep in step with the inline theme script in index.template.html.
+ */
 export function loadPrefs(): Prefs {
-  try { return { theme: 'auto', haptics: true, ...JSON.parse(localStorage.getItem(PREF_KEY) || '{}') }; }
-  catch { return { theme: 'auto', haptics: true }; }
+  let stored: Partial<Prefs> = {};
+  try { stored = JSON.parse(localStorage.getItem(PREF_KEY) || '{}'); } catch { /* ignore */ }
+  const p: Prefs = { theme: 'dark', haptics: true, ...stored };
+  if (!p.themeV3) {
+    if (p.theme === 'auto') p.theme = 'dark';
+    p.themeV3 = true;
+    if (Object.keys(stored).length) savePrefs(p);
+  }
+  return p;
 }
 export function savePrefs(p: Prefs) { try { localStorage.setItem(PREF_KEY, JSON.stringify(p)); } catch { /* ignore */ } }
 
@@ -76,7 +90,7 @@ export function applyTheme(p: Prefs) {
   const dark = p.theme === 'dark' || (p.theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', dark ? '#0d0d0e' : '#f2f2f2');
+  if (meta) meta.setAttribute('content', dark ? '#111111' : '#ECECE9');
 }
 
 let hapticsOn = true;

@@ -8,3 +8,6 @@ nexus.json
 nexus-backup-*.json
 nexus-*.csv
 backups/
+
+# local before/after screenshots for the UI v3 review (never committed)
+screenshots/
