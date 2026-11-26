@@ -564,6 +564,36 @@ table.bands tr.hit td:first-child { box-shadow: inset 4px 0 0 var(--signal); }
 .demo-bar .in { background: var(--block); color: var(--block-ink); display: flex; align-items: center; gap: 10px; padding: 6px 12px; font-size: 12.5px; }
 .demo-bar button { margin-left: auto; color: var(--signal); font-weight: 600; text-decoration: underline; min-height: 32px; }
 
+/* ---------------- daily boot log (spec 6) — always dark, so colours are literal ---------------- */
+.boot { position: fixed; inset: 0; z-index: 90; background: #0E0E0E; color: #EEEEEE; overflow-y: auto; cursor: pointer; }
+.boot.out { animation: bootOut .30s var(--snap) forwards; }
+.boot-scan { position: fixed; inset: 0; pointer-events: none; background: repeating-linear-gradient(0deg, rgba(255,255,255,.025) 0 1px, transparent 1px 3px); }
+.boot-in { position: relative; min-height: 100dvh; max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; padding: calc(40px + env(safe-area-inset-top, 0px)) 20px calc(24px + env(safe-area-inset-bottom, 0px)); }
+.boot-head { display: flex; align-items: center; gap: 10px; }
+.boot-tri { height: 22px; }
+.boot-logo { display: block; font-family: var(--f-num); font-size: 22px; font-weight: 700; letter-spacing: .22em; color: #F4F4F4; }
+.boot-ver { display: block; font-family: var(--f-mono); font-size: 9.5px; letter-spacing: .14em; color: #8A8A8A; }
+.boot-cross { margin-left: auto; width: 14px; height: 14px; flex-shrink: 0; background: linear-gradient(#8A8A8A, #8A8A8A) center / 1px 100% no-repeat, linear-gradient(#8A8A8A, #8A8A8A) center / 100% 1px no-repeat; }
+.boot-term {
+  flex: 1; display: flex; flex-direction: column; gap: 9px; padding: 16px; min-height: 360px;
+  background: #141414; border: 1px solid #2E2E2E; clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, 0 100%);
+  font-family: var(--f-mono), var(--f-body); font-size: 12px; line-height: 1.45; color: #CCCCCC; animation: bootFlick .45s linear 1;
+}
+.boot-th { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: .12em; color: #8A8A8A; border-bottom: 1px solid #2A2A2A; padding-bottom: 8px; }
+.bl { overflow-wrap: anywhere; animation: bootLn .32s steps(18) backwards; animation-delay: calc(200ms + var(--i, 0) * 300ms); }
+.bl.sub { padding-left: 16px; font-family: var(--f-body); color: #8A8A8A; }
+.bl.end { margin-top: 8px; padding-top: 10px; border-top: 1px dashed #333333; color: #F4F4F4; }
+.b-dim { color: #8A8A8A; } .b-sig { color: #FFFA00; } .b-pos { color: #8CE03C; } .b-warn { color: #F97501; } .b-neg { color: #FF8A8C; } .b-info { color: #22A6F2; }
+.boot-cur { display: inline-block; width: 8px; height: 14px; margin-left: 4px; vertical-align: -2px; background: #FFFA00; animation: bootBlink 1s steps(1) infinite; }
+.boot-hatch { display: block; margin-top: auto; height: 7px; background: repeating-linear-gradient(-45deg, #3A3A3A 0 1px, transparent 1px 3.5px); }
+.boot-enter { min-height: 52px; font-family: var(--f-num); font-size: 13px; font-weight: 700; letter-spacing: .14em; clip-path: polygon(0 0, calc(100% - var(--cut-sm)) 0, 100% var(--cut-sm), 100% 100%, 0 100%); }
+.boot-enter svg { width: 16px; height: 16px; fill: none; stroke: #111111; stroke-width: 2; }
+.boot-hint { text-align: center; font-family: var(--f-body); font-size: 11px; color: #8A8A8A; }
+@keyframes bootLn { from { opacity: 0; clip-path: inset(0 100% 0 0); } to { opacity: 1; clip-path: inset(0); } }
+@keyframes bootFlick { 0%, 100% { opacity: 1; } 8% { opacity: .35; } 14% { opacity: 1; } 22% { opacity: .5; } 28% { opacity: 1; } }
+@keyframes bootBlink { 50% { opacity: 0; } }
+@keyframes bootOut { to { clip-path: inset(0 0 100% 0); } }
+
 /* ======================= DESKTOP ======================= */
 @media (min-width: 900px) {
   body { font-size: 15px; }

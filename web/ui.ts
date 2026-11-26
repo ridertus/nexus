@@ -66,6 +66,12 @@ export interface Prefs {
   dismissInstall?: boolean;
   /** UI v3 theme migration done (a stored 'auto' from v2 was moved to 'dark' once). */
   themeV3?: boolean;
+  /** Optional name for the Boot Log greeting (Decision 1). */
+  name?: string;
+  /** Last Bangkok date the Daily Boot Log was shown, 'YYYY-MM-DD'. */
+  lastBoot?: string;
+  /** Show the Daily Boot Log on the first open of the day (default on). */
+  bootLog?: boolean;
 }
 const PREF_KEY = 'nexus.prefs';
 /**

@@ -10,7 +10,7 @@ import { loadDemo } from './demo.js';
 import * as U from './ui.js';
 
 const { $, $$, esc, ic, baht } = U;
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '3.0.0';
 
 // ------------------------------------------------------------------ boot
 const storage = safeStorage();
@@ -614,6 +614,10 @@ function viewSettings(): [string, string] {
       <input id="set-taxres" inputmode="decimal" value="${s.monthlyTaxReserve ? s.monthlyTaxReserve / 100 : ''}" placeholder="0">
       <div class="hint">ถ้ามีรายได้ที่ไม่ได้ถูกหัก ณ ที่จ่ายพอ ดูยอดแนะนำได้ในหน้าภาษี</div></label>
     <div class="field"><span>ธีม</span><div class="segctl">${([['auto', 'ตามเครื่อง'], ['light', 'สว่าง'], ['dark', 'มืด']] as const).map(([k, l]) => `<button data-theme-set="${k}" aria-pressed="${prefs.theme === k}">${l}</button>`).join('')}</div></div>
+    <label class="field"><span>ชื่อที่ใช้ทักทาย (ไม่บังคับ)</span><input id="set-name" value="${esc(prefs.name ?? '')}" maxlength="24" autocomplete="nickname" placeholder="ชื่อเล่น">
+      <div class="hint">ใช้ใน Boot Log ตอนเปิดแอปครั้งแรกของวัน · เก็บในเครื่องนี้เท่านั้น</div></label>
+    <label class="check"><input type="checkbox" id="set-boot" ${prefs.bootLog !== false ? 'checked' : ''}>แสดง Boot Log ตอนเปิดแอปครั้งแรกของวัน</label>
+    <p class="fine" style="margin:-4px 0 6px">ไม่แสดงในโหมดตัวอย่าง หรือเมื่อเครื่องตั้งค่าให้ลดการเคลื่อนไหว</p>
     <label class="check"><input type="checkbox" id="set-hap" ${prefs.haptics ? 'checked' : ''}>สั่นเบา ๆ เมื่อบันทึก (Android)</label>
     ${installEvt ? `<button class="btn block dark" data-act="install" style="margin-top:12px">${ic('phone')}ติดตั้งเป็นแอป</button>` : ''}
   </div>`;
@@ -1121,12 +1125,115 @@ function onboarding(step = 0, draft: { bal: Record<string, string>; cycle: numbe
     svc.updateSettings({ cycleStartDay: draft.cycle, incomeMode: draft.none ? 'none' : 'regular' });
     onboarding(3, draft);
   });
-  const finish = (to?: string) => { setPrefs({ onboarded: true, demo: false }); el!.remove(); if (to) location.hash = to; render(); };
+  const finish = (to?: string) => { setPrefs({ onboarded: true, demo: false, lastBoot: svc.today() }); el!.remove(); if (to) location.hash = to; render(); };
   on('finish', () => finish('#home'));
   on('bills', () => { finish('#plan-bills'); setTimeout(() => billForm(), 250); });
   el.querySelector('#onb-restore')?.addEventListener('change', async e => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) { el!.remove(); await restore(f); } });
   el.scrollTop = 0;
   (el.querySelector('input,button') as HTMLElement | null)?.focus();
+}
+
+// ------------------------------------------------------------------ DAILY BOOT LOG (spec 6)
+/** First open of the Bangkok day, after onboarding; never in demo, when switched off, or under reduced motion. */
+function shouldBoot() {
+  if (firstRun || !prefs.onboarded || prefs.demo || prefs.bootLog === false) return false;
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+  return prefs.lastBoot !== svc.today();
+}
+
+/** Terminal lines. Labels are English (it is a terminal); names are the user's own. A line with nothing to say is left out. */
+function bootLines(): string {
+  const today = svc.today();
+  let i = 0;
+  const line = (html: string, cls = '') => `<div class="bl ${cls}" style="--i:${i++}">${html}</div>`;
+  const row = (label: string, value: string, cls: string) =>
+    line(`<span aria-hidden="true">&gt; </span>${esc(label)} <span aria-hidden="true">${'.'.repeat(Math.max(3, 20 - label.length))}</span> <span class="${cls}">${value}</span>`);
+  const out: string[] = [];
+  out.push(line(`<span aria-hidden="true">&gt; </span>BOOT SEQUENCE  <span class="b-dim">${today.replace(/-/g, '.')} ${bkkTime()}</span>`));
+  out.push(row('SYNC LEDGER', 'OK', 'b-pos'));
+
+  const accs = svc.getAccounts();
+  const bal = accs.reduce((a, x) => a + x.balance, 0);
+  if (bal || svc.snapshot().transactions.length) out.push(row('BALANCE', baht(bal), 'b-sig'));
+
+  let shortfall = false;
+  if (svc.getSettings().incomeMode === 'none') {
+    const r = svc.getRunway();
+    if (r.days !== null) out.push(row('RUNWAY', `${r.days > 999 ? '999+' : r.days} DAYS`, r.days < 30 ? 'b-warn' : 'b-sig'));
+  } else {
+    const st = svc.getSafeToSpend();
+    if (st.shortfall > 0) { shortfall = true; out.push(row('SHORTFALL', baht(st.shortfall), 'b-neg')); }
+    else if (st.safeToSpend > 0) out.push(row('SAFE TO SPEND', `${baht(st.safeToSpend)}<span class="b-dim"> · ${U.bahtParts(st.perDay).int}/D</span>`, 'b-sig'));
+  }
+
+  const bud = svc.getBudgets();
+  const plan = bud.lines.reduce((a, l) => a + l.plan, 0), spent = bud.lines.reduce((a, l) => a + l.spent, 0);
+  if (plan > 0) {
+    const cyc = svc.getSafeToSpend().cycle;
+    const elapsed = (daysBetween(cyc.from, today) + 1) / daysBetween(cyc.from, cyc.to);
+    const pct = Math.round((spent / plan) * 100);
+    out.push(row('MONTH BUDGET', `${pct}% <span class="b-dim">USED</span>`, pct > elapsed * 100 + 10 ? 'b-warn' : 'b-pos'));
+  }
+
+  const cycBills = svc.getUpcomingBills();
+  const unpaid = cycBills.filter(b => !b.paid).sort((a, b) => a.due.localeCompare(b.due));
+  if (unpaid.length) {
+    out.push(row('BILLS DUE', `${unpaid.length} PENDING`, 'b-warn'));
+    for (const b of unpaid.slice(0, 3)) out.push(line(`· ${esc(b.name)} ${baht(b.amount)} — ${esc(U.relDays(daysBetween(today, b.due)))}`, 'sub'));
+  } else if (cycBills.length) out.push(row('BILLS DUE', 'ALL PAID', 'b-pos'));
+
+  const raw = new Map(svc.snapshot().goals.map(g => [g.id, g]));
+  const goal = svc.getGoals().filter(g => g.status !== 'done' && raw.get(g.goalId)?.targetDate)
+    .sort((a, b) => raw.get(a.goalId)!.targetDate!.localeCompare(raw.get(b.goalId)!.targetDate!))[0];
+  if (goal) out.push(row(`GOAL / ${goal.name}`, `${goal.percent}%`, 'b-info'));
+
+  const year = Number(today.slice(0, 4));
+  if (svc.getTax(year).projected.totalGross > 0) out.push(row('TAX P.N.D.90', `READY ${year + 1}.03`, 'b-info'));
+
+  const name = prefs.name?.trim();
+  out.push(line(shortfall
+    ? `<span class="b-warn">WARNING: SHORTFALL</span><i class="boot-cur" aria-hidden="true"></i>`
+    : `<span class="b-pos">ALL SYSTEMS ONLINE.</span> WELCOME BACK${name ? `, ${esc(name.toUpperCase())}` : '.'}<i class="boot-cur" aria-hidden="true"></i>`, 'end'));
+  return out.join('');
+}
+
+/** Full-screen daily summary. All text is in the DOM from the start (animation only hides it visually). */
+function showBootLog() {
+  setPrefs({ lastBoot: svc.today() });
+  const el = document.createElement('div');
+  el.id = 'boot';
+  el.className = 'boot';
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-modal', 'true');
+  el.setAttribute('aria-label', 'สรุปประจำวัน');
+  el.innerHTML = `<div class="boot-scan" aria-hidden="true"></div>
+    <div class="boot-in">
+      <div class="boot-head"><i class="tri-v boot-tri" aria-hidden="true"></i>
+        <div><b class="boot-logo">NEXUS</b><span class="boot-ver">PERSONAL FINANCE OS · v${APP_VERSION}</span></div>
+        <i class="boot-cross" aria-hidden="true"></i></div>
+      <section class="boot-term">
+        <div class="boot-th" aria-hidden="true"><span>// DAILY BOOT LOG</span><span>TTY-01</span></div>
+        ${bootLines()}
+        <i class="boot-hatch" aria-hidden="true"></i>
+      </section>
+      <button type="button" class="btn primary boot-enter">ENTER NEXUS<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8 4l4 4-4 4"/></svg></button>
+      <p class="boot-hint">แสดงครั้งแรกของวัน · แตะที่ไหนก็ได้เพื่อข้าม</p>
+    </div>`;
+  document.body.append(el);
+  document.body.style.overflow = 'hidden';
+  let done = false;
+  const close = (e?: Event) => {
+    e?.preventDefault(); e?.stopPropagation();
+    if (done) return;
+    done = true;
+    window.removeEventListener('keydown', onKey, true);
+    el.classList.add('out');
+    setTimeout(() => { el.remove(); document.body.style.overflow = ''; ($('.mh h1') as HTMLElement | null)?.focus(); }, 300);
+  };
+  const onKey = (e: KeyboardEvent) => { if (!['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) close(e); };
+  el.addEventListener('click', close);
+  window.addEventListener('keydown', onKey, true);
+  ($('.boot-enter', el) as HTMLElement).focus();
 }
 
 // ------------------------------------------------------------------ events (delegated)
@@ -1141,6 +1248,8 @@ function afterRender(r: Route) {
     $('#set-cycle')?.addEventListener('change', e => { if (tryDo(() => svc.updateSettings({ cycleStartDay: Number((e.target as HTMLSelectElement).value) }))) U.toast('บันทึกแล้ว'); });
     $('#set-taxres')?.addEventListener('change', e => { const v = (e.target as HTMLInputElement).value; if (tryDo(() => svc.updateSettings({ monthlyTaxReserve: v.trim() ? parseBaht(v) : 0 }))) U.toast('บันทึกแล้ว'); });
     $('#set-hap')?.addEventListener('change', e => { const on = (e.target as HTMLInputElement).checked; setPrefs({ haptics: on }); U.setHaptics(on); });
+    $('#set-name')?.addEventListener('change', e => { setPrefs({ name: (e.target as HTMLInputElement).value.trim() || undefined }); U.toast('บันทึกแล้ว'); });
+    $('#set-boot')?.addEventListener('change', e => { setPrefs({ bootLog: (e.target as HTMLInputElement).checked }); });
   }
   if (r.page === 'more' && r.sub === 'backup') $('#restore')?.addEventListener('change', e => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) restore(f); (e.target as HTMLInputElement).value = ''; });
   if (r.page === 'more' && r.sub === 'tax') $('#rate408')?.addEventListener('change', e => { const v = Number((e.target as HTMLInputElement).value); if (tryDo(() => svc.updateSettings({ section408DeductionRate: v / 100 }))) render(); });
@@ -1213,6 +1322,7 @@ else {
   const q = new URLSearchParams(location.search);
   const add = q.get('add');
   if (add === 'expense' || add === 'income' || add === 'transfer') { openQuickAdd({ type: add }); history.replaceState(null, '', location.pathname + location.hash); }
+  else if (shouldBoot()) showBootLog();
 }
 try { (navigator as any).storage?.persist?.(); } catch { /* ignore */ }
 if ('serviceWorker' in navigator && location.protocol === 'https:' && !/claude|anthropic/.test(location.hostname)) {
