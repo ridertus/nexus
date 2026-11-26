@@ -61,6 +61,15 @@ const secH = (code: string, title: string, icon: string, link?: { href: string; 
     <div class="tt"><span class="micro" aria-hidden="true">// ${esc(code)}</span><h2>${esc(title)}</h2></div>
     ${link ? `<a class="link" href="${link.href}">${esc(link.label)}${ic('chevron')}</a>` : ''}</div>`;
 
+/** Numeral with the unit after it (spec 4.3): <n>int<dec>.xx</dec></n><cur>฿</cur> */
+function numCur(satang: number, unit = '฿') {
+  const p = U.bahtParts(satang);
+  return `<span class="n">${p.neg ? '−' : ''}${p.int}${p.dec ? `<span class="dec">${p.dec}</span>` : ''}</span><span class="cur">${unit}</span>`;
+}
+/** Status chip: the English word is visual, the Thai meaning is read out (spec 7: never colour alone). */
+const statusChip = (cls: 'pos' | 'warn' | 'neg' | 'info', en: string, th: string) =>
+  `<span class="schip ${cls}"><span aria-hidden="true">${en}</span><span class="sr">${esc(th)}</span></span>`;
+
 function txRow(t: Transaction, m = maps()) {
   const c = t.categoryId ? m.cats.get(t.categoryId) : undefined;
   const a = m.accs.get(t.accountId);
@@ -171,34 +180,57 @@ function viewHome(): [string, string] {
   const w = (v: number) => `${Math.max(0, (v / base) * 100).toFixed(2)}%`;
   const elapsed = (daysBetween(s.cycle.from, today) + 1) / daysBetween(s.cycle.from, s.cycle.to);
 
+  // NEAR LIMIT (Decision 2): total budget used faster than the cycle has elapsed (+10%), or today over its share.
+  const bud = svc.getBudgets();
+  const plannedAll = bud.lines.reduce((a, l) => a + l.plan, 0), spentAll = bud.lines.reduce((a, l) => a + l.spent, 0);
+  const budgetFast = plannedAll > 0 && (spentAll / plannedAll) * 100 > elapsed * 100 + 10;
+  const near = !bad && (budgetFast || leftToday < 0);
+  const chip = bad ? statusChip('neg', 'SHORTFALL', 'สถานะ: เงินไม่พอ')
+    : near ? statusChip('warn', 'NEAR LIMIT', 'สถานะ: ใกล้เกินงบ')
+    : statusChip('pos', 'ON TRACK', 'สถานะ: ตามแผน');
+  const todayPct = dayBudget ? Math.min(100, (todayExp / dayBudget) * 100) : todayExp ? 100 : 0;
+
   const hero = svc.getSettings().incomeMode === 'none' ? heroRunway(todayExp) : `
-  <section class="hero chamfer ${bad ? 'bad' : ''}" aria-labelledby="sts-l">
-    <div class="vband" aria-hidden="true"><b>SAFE TO SPEND</b></div>
-    <div>
-      <div class="hero-band ${bad ? 'bad' : ''}"><b aria-hidden="true">${bad ? 'SHORTFALL' : 'SAFE TO SPEND'}</b><span class="micro">รอบ ${esc(cycleLabel(s.cycle))}</span></div>
-      <div class="hero-body">
-        <div class="hero-label" id="sts-l">${bad ? 'เงินไม่พอสำหรับสิ่งที่กันไว้' : 'ใช้ได้อีกในรอบนี้'}</div>
-        <div class="hero-amt" aria-live="polite">${bad ? `<span class="neg">−<span class="cur">฿</span>${U.bahtParts(s.shortfall).int}</span>` : `<span class="cur">฿</span>${p.int}<span class="dec">${p.dec}</span>`}</div>
-        <div class="hero-sub">${bad ? `ขาดอยู่ <b class="neg">${baht(s.shortfall)}</b> — ลองเลื่อนการออมหรือลดค่าใช้จ่าย` : `เฉลี่ย <b>${baht(s.perDay)}</b>/วัน · อีก <b>${s.daysLeft}</b> วัน`}</div>
-        <div class="cap-bar" role="img" aria-label="เงินที่มี ${baht(s.available)} แบ่งเป็นใช้ได้ ${baht(s.safeToSpend)} บิล ${baht(s.reserved.bills)} ออม ${baht(s.reserved.goals)} ภาษี ${baht(s.reserved.tax)}">
-          ${s.safeToSpend ? `<i class="free" style="width:${w(s.safeToSpend)}"></i>` : ''}
-          ${s.reserved.bills ? `<i class="lock" style="width:${w(s.reserved.bills)}"></i>` : ''}
-          ${s.reserved.goals ? `<i class="lock goals" style="width:${w(s.reserved.goals)}"></i>` : ''}
-          ${s.reserved.tax ? `<i class="lock tax" style="width:${w(s.reserved.tax)}"></i>` : ''}
-        </div>
-        <div class="cap-legend">
-          <div><i class="sw free"></i>ใช้ได้<b>${baht(s.safeToSpend)}</b></div>
-          <div><i class="sw bills"></i>บิลรอจ่าย<b>${baht(s.reserved.bills)}</b></div>
-          <div><i class="sw goals"></i>กันไว้ออม<b>${baht(s.reserved.goals)}</b></div>
-          <div><i class="sw tax"></i>กันไว้ภาษี<b>${baht(s.reserved.tax)}</b></div>
-        </div>
+  <section class="hero ${bad ? 'bad' : near ? 'near' : ''}" aria-labelledby="sts-l">
+    <div class="hero-top"><span class="hl" id="sts-l"><span aria-hidden="true">SAFE TO SPEND · </span><span class="th">${bad ? 'เงินไม่พอสำหรับสิ่งที่กันไว้' : 'ใช้ได้อีกในรอบนี้'}</span></span>${chip}</div>
+    <div class="hero-amt ${bad ? 'neg' : ''}" aria-live="polite">${bad ? numCur(-s.shortfall) : numCur(s.safeToSpend)}</div>
+    <div class="hero-sub">${bad ? `ขาดอยู่ <b class="neg">${baht(s.shortfall)}</b> — ลองเลื่อนการออมหรือลดค่าใช้จ่าย` : `เฉลี่ย <b>${baht(s.perDay)}</b>/วัน · อีก <b>${s.daysLeft}</b> วัน`} · รอบ ${esc(cycleLabel(s.cycle))}${budgetFast && !bad ? ' · <span class="warn">งบรวมใช้เร็วกว่าแผน</span>' : ''}</div>
+    <div class="cap">
+      <div class="cap-bar" role="img" aria-label="เงินที่มี ${baht(s.available)} แบ่งเป็นใช้ได้ ${baht(s.safeToSpend)} บิล ${baht(s.reserved.bills)} ออม ${baht(s.reserved.goals)} ภาษี ${baht(s.reserved.tax)}">
+        ${s.safeToSpend ? `<i class="free" style="width:${w(s.safeToSpend)}"></i>` : ''}
+        ${s.reserved.bills ? `<i class="lock l1" style="width:${w(s.reserved.bills)}"></i>` : ''}
+        ${s.reserved.goals ? `<i class="lock l2" style="width:${w(s.reserved.goals)}"></i>` : ''}
+        ${s.reserved.tax ? `<i class="lock l3" style="width:${w(s.reserved.tax)}"></i>` : ''}
       </div>
-      <div class="today">
-        <div><div class="lab">วันนี้ใช้ได้อีก</div><div class="val ${leftToday < 0 ? 'over' : ''}">${leftToday < 0 ? '−' + baht(-leftToday) : baht(leftToday)}</div></div>
-        <div class="meter" aria-hidden="true"><div class="bar"><i class="${leftToday < 0 ? 'over' : ''}" style="width:${dayBudget ? Math.min(100, (todayExp / dayBudget) * 100) : todayExp ? 100 : 0}%"></i></div>
-          <div class="t"><span>ใช้ ${baht(todayExp)}</span><span>/ ${baht(dayBudget)}</span></div></div>
+      <div class="cap-legend">
+        <span><i class="sw free" aria-hidden="true"></i>ใช้ได้ ${baht(s.safeToSpend)}</span>
+        <span><i class="sw l1" aria-hidden="true"></i>บิล ${baht(s.reserved.bills)}</span>
+        <span><i class="sw l2" aria-hidden="true"></i>ออม ${baht(s.reserved.goals)}</span>
+        <span><i class="sw l3" aria-hidden="true"></i>ภาษี ${baht(s.reserved.tax)}</span>
       </div>
     </div>
+    <div class="today">
+      <div class="t-top"><span class="hl"><span aria-hidden="true">TODAY · </span><span class="th">${leftToday < 0 ? 'ใช้เกินวันนี้' : 'วันนี้เหลือ'}</span></span><span class="t-val ${leftToday < 0 ? 'over' : ''}">${numCur(leftToday)}</span></div>
+      <div class="t-bar" aria-hidden="true"><i class="${leftToday < 0 ? 'over' : ''}" style="width:${todayPct}%"></i></div>
+      <div class="t-foot"><span>ใช้ ${baht(todayExp)}</span><span>/ ${baht(dayBudget)}</span></div>
+    </div>
+  </section>`;
+
+  // stat tiles (spec 4.4, Decision 5): engine numbers only
+  const accsAll = svc.getAccounts();
+  const balTotal = accsAll.reduce((a, x) => a + x.balance, 0);
+  const balSpend = accsAll.filter(a => a.spendable).reduce((a, x) => a + x.balance, 0);
+  const cf = svc.getCashFlow(2);
+  const cfPrev = cf[0]!, cfNow = cf[1]!;
+  const dNet = cfNow.net - cfPrev.net;
+  const stats = `
+  <section class="stats" aria-label="สรุปยอดเงิน">
+    <div class="stat"><span class="ml"><span aria-hidden="true">TOTAL BALANCE</span><span class="th">ยอดรวม</span></span>
+      <span class="sv ${balTotal < 0 ? 'neg' : ''}">${numCur(balTotal)}</span>
+      <span class="sl">ใช้จ่ายได้ ${baht(balSpend)}<br>ออม ${baht(balTotal - balSpend)}</span></div>
+    <div class="stat"><span class="ml"><span aria-hidden="true">NET</span><span class="th">สุทธิเดือนนี้</span></span>
+      <span class="sv ${cfNow.net < 0 ? 'neg' : ''}">${numCur(cfNow.net)}</span>
+      <span class="sl ${dNet > 0 ? 'pos' : dNet < 0 ? 'neg' : ''}">${dNet ? `<span aria-hidden="true">${dNet > 0 ? '▲' : '▼'} </span><span class="sr">${dNet > 0 ? 'เพิ่มขึ้น' : 'ลดลง'} </span>${baht(Math.abs(dNet))} จากเดือนก่อน` : 'เท่ากับเดือนก่อน'}</span></div>
   </section>`;
 
   // notices
@@ -221,7 +253,6 @@ function viewHome(): [string, string] {
     : `<div class="card rows">${bills.map(b => billRow(b, today)).join('')}</div>`;
 
   // budgets
-  const bud = svc.getBudgets();
   const lines = [...bud.lines].sort((a, b) => b.percentUsed - a.percentUsed).slice(0, 4);
   const budHtml = lines.length === 0
     ? `<div class="card empty"><b>ยังไม่ได้ตั้งงบ</b>แนะนำให้จดอย่างเดียวสัก 2–4 สัปดาห์ แล้วค่อยตั้งงบจากตัวเลขจริง<br><a class="btn sm" href="#plan" style="margin-top:12px">ไปที่แผน</a></div>`
@@ -243,6 +274,7 @@ function viewHome(): [string, string] {
   <div class="home-grid">
     <div>
       ${hero}
+      ${stats}
       ${notes.join('')}
       <div class="sec">${secH('02 BUDGET', 'งบรอบนี้', 'tag', { href: '#plan', label: 'ทั้งหมด' })}${budHtml}</div>
     </div>
@@ -261,29 +293,27 @@ function heroRunway(todayExp: number) {
   const dayLabel = r.days === null ? '—' : r.days > 999 ? '999+' : String(r.days);
   const avg = r.flexiblePerDay;
   const meter = avg ? Math.min(100, (todayExp / avg) * 100) : todayExp ? 100 : 0;
+  const over = !!avg && todayExp > avg;
+  const chip = r.days === null ? ''
+    : short ? statusChip('warn', 'SHORT RUNWAY', 'สถานะ: เงินพอใช้น้อยกว่า 30 วัน')
+    : statusChip('pos', 'ON TRACK', 'สถานะ: เงินพอใช้เกิน 30 วัน');
   return `
-  <section class="hero chamfer ${short ? 'bad' : ''}" aria-labelledby="rw-l">
-    <div class="vband" aria-hidden="true"><b>RUNWAY</b></div>
-    <div>
-      <div class="hero-band ${short ? 'bad' : ''}"><b aria-hidden="true">RUNWAY</b><span class="micro">เฉลี่ยจาก ${r.daysObserved} วันล่าสุด</span></div>
-      <div class="hero-body">
-        <div class="hero-label" id="rw-l">เงินใช้จ่ายที่มี พอใช้อีกประมาณ</div>
-        <div class="hero-amt" aria-live="polite">${dayLabel}<span class="cur" style="margin-left:8px">วัน</span></div>
-        <div class="hero-sub">${r.days === null ? 'จดรายจ่ายสักพัก แล้วระบบจะคำนวณให้' : `ถึงประมาณ <b>${U.dMed(r.runOutDate!)}</b> · ใช้เฉลี่ย <b>${baht(r.burnPerDay)}</b>/วัน`}</div>
-        ${r.lowData && r.days !== null ? `<div class="notice" style="margin-top:12px">${ic('alert')}<span>ข้อมูลยังน้อย (${r.daysObserved} วัน) ตัวเลขจะนิ่งขึ้นเมื่อจดครบ 2 สัปดาห์</span></div>` : ''}
-        <div class="card rows" style="margin-top:14px">
-          <div class="kv"><span class="k">เงินใช้จ่ายตอนนี้</span><span class="v">${baht(r.spendable)}</span></div>
-          <div class="kv"><span class="k">ใช้ทั่วไปเฉลี่ย / วัน</span><span class="v">${baht(r.flexiblePerDay)}</span></div>
-          <div class="kv"><span class="k">บิลประจำ / วัน</span><span class="v">${baht(r.billsPerDay)}</span></div>
-          ${r.withSavings !== r.spendable ? `<div class="kv"><span class="k">ถ้ารวมเงินออม (${baht(r.withSavings)})</span><span class="v">${r.daysWithSavings === null ? '—' : r.daysWithSavings + ' วัน'}</span></div>` : ''}
-          ${r.incomeInWindow ? `<div class="kv"><span class="k">ได้รับเข้ามาใน ${r.daysObserved} วัน</span><span class="v pos">${baht(r.incomeInWindow, { sign: true })}</span></div>` : ''}
-        </div>
-      </div>
-      <div class="today">
-        <div><div class="lab">วันนี้ใช้ไป</div><div class="val ${avg && todayExp > avg ? 'over' : ''}">${baht(todayExp)}</div></div>
-        <div class="meter" aria-hidden="true"><div class="bar"><i class="${avg && todayExp > avg ? 'over' : ''}" style="width:${meter}%"></i></div>
-          <div class="t"><span>เทียบค่าเฉลี่ย</span><span>${baht(avg)}/วัน</span></div></div>
-      </div>
+  <section class="hero ${short ? 'near' : ''}" aria-labelledby="rw-l">
+    <div class="hero-top"><span class="hl" id="rw-l"><span aria-hidden="true">RUNWAY · </span><span class="th">เงินใช้จ่ายที่มี พอใช้อีกประมาณ</span></span>${chip}</div>
+    <div class="hero-amt" aria-live="polite"><span class="n">${dayLabel}</span><span class="cur unit">วัน</span></div>
+    <div class="hero-sub">${r.days === null ? 'จดรายจ่ายสักพัก แล้วระบบจะคำนวณให้' : `ถึงประมาณ <b>${U.dMed(r.runOutDate!)}</b> · ใช้เฉลี่ย <b>${baht(r.burnPerDay)}</b>/วัน`} · เฉลี่ยจาก ${r.daysObserved} วันล่าสุด</div>
+    ${r.lowData && r.days !== null ? `<div class="notice">${ic('alert')}<span>ข้อมูลยังน้อย (${r.daysObserved} วัน) ตัวเลขจะนิ่งขึ้นเมื่อจดครบ 2 สัปดาห์</span></div>` : ''}
+    <div class="rows hero-kv">
+      <div class="kv"><span class="k">เงินใช้จ่ายตอนนี้</span><span class="v">${baht(r.spendable)}</span></div>
+      <div class="kv"><span class="k">ใช้ทั่วไปเฉลี่ย / วัน</span><span class="v">${baht(r.flexiblePerDay)}</span></div>
+      <div class="kv"><span class="k">บิลประจำ / วัน</span><span class="v">${baht(r.billsPerDay)}</span></div>
+      ${r.withSavings !== r.spendable ? `<div class="kv"><span class="k">ถ้ารวมเงินออม (${baht(r.withSavings)})</span><span class="v">${r.daysWithSavings === null ? '—' : r.daysWithSavings + ' วัน'}</span></div>` : ''}
+      ${r.incomeInWindow ? `<div class="kv"><span class="k">ได้รับเข้ามาใน ${r.daysObserved} วัน</span><span class="v pos">${baht(r.incomeInWindow, { sign: true })}</span></div>` : ''}
+    </div>
+    <div class="today">
+      <div class="t-top"><span class="hl"><span aria-hidden="true">TODAY · </span><span class="th">วันนี้ใช้ไป</span></span><span class="t-val ${over ? 'over' : ''}">${numCur(todayExp)}</span></div>
+      <div class="t-bar" aria-hidden="true"><i class="${over ? 'over' : ''}" style="width:${meter}%"></i></div>
+      <div class="t-foot"><span>เทียบค่าเฉลี่ย</span><span>${baht(avg)}/วัน</span></div>
     </div>
   </section>`;
 }
@@ -576,15 +606,11 @@ function viewTax(): [string, string] {
       <div class="segctl" style="flex:1;min-width:220px">${([['projected', 'ประมาณทั้งปี'], ['actual', 'ถึงวันนี้']] as const).map(([k, l]) => `<button data-taxbasis="${k}" aria-pressed="${st.taxBasis === k}">${l}</button>`).join('')}</div>
     </div>
     ${taxed.length === 0 ? `<div class="notice warn">${ic('alert')}<span>ยังไม่มีหมวดรายรับที่ตั้งประเภทเงินได้ — ตั้งที่ หมวดหมู่ › รายรับ</span><a class="act" href="#more-categories">ไปตั้ง</a></div>` : ''}
-    <section class="hero chamfer" style="margin-top:12px">
-      <div class="vband" aria-hidden="true"><b>TAX ${U.be(year)}</b></div>
-      <div><div class="hero-band"><b aria-hidden="true">P.N.D. 90/91</b><span class="micro">${st.taxBasis === 'projected' ? 'PROJECTION' : 'YEAR TO DATE'}</span></div>
-      <div class="hero-body tax-hero">
-        <div class="hero-label">${e.remaining >= 0 ? 'ภาษีที่อาจต้องจ่ายเพิ่มตอนยื่น' : 'อาจได้เงินคืนประมาณ'}</div>
-        <div class="amt ${e.remaining < 0 ? 'pos' : ''}">${baht(Math.abs(e.remaining))}</div>
-        <div class="hero-sub">ภาษีทั้งปี <b>${baht(e.tax)}</b> · ถูกหัก ณ ที่จ่ายแล้ว <b>${baht(e.withheld)}</b>${e.method !== 'progressive' ? ' · ใช้วิธีภาษีขั้นต่ำ 0.5%' : ''}</div>
-        ${suggestReserve && st.taxBasis === 'projected' ? `<div class="notice" style="margin-top:12px">${ic('savings')}<span>กันไว้เดือนละ <b>${baht(suggestReserve)}</b> อีก ${monthsLeft} เดือนจะพอ${s.monthlyTaxReserve ? ` (ตอนนี้กันไว้ ${baht(s.monthlyTaxReserve)})` : ''}</span><button class="act" data-setreserve="${suggestReserve}">ใช้ยอดนี้</button></div>` : ''}
-      </div></div>
+    <section class="hero" aria-labelledby="tax-l">
+      <div class="hero-top"><span class="hl" id="tax-l"><span aria-hidden="true">P.N.D. 90/91 · ${U.be(year)} · </span><span class="th">${e.remaining >= 0 ? 'ภาษีที่อาจต้องจ่ายเพิ่มตอนยื่น' : 'อาจได้เงินคืนประมาณ'}</span></span>${st.taxBasis === 'projected' ? statusChip('info', 'PROJECTION', 'ประมาณทั้งปี') : statusChip('info', 'YEAR TO DATE', 'ถึงวันนี้')}</div>
+      <div class="hero-amt ${e.remaining < 0 ? 'pos' : ''}">${numCur(Math.abs(e.remaining))}</div>
+      <div class="hero-sub">ภาษีทั้งปี <b>${baht(e.tax)}</b> · ถูกหัก ณ ที่จ่ายแล้ว <b>${baht(e.withheld)}</b>${e.method !== 'progressive' ? ' · ใช้วิธีภาษีขั้นต่ำ 0.5%' : ''}</div>
+      ${suggestReserve && st.taxBasis === 'projected' ? `<div class="notice">${ic('savings')}<span>กันไว้เดือนละ <b>${baht(suggestReserve)}</b> อีก ${monthsLeft} เดือนจะพอ${s.monthlyTaxReserve ? ` (ตอนนี้กันไว้ ${baht(s.monthlyTaxReserve)})` : ''}</span><button class="act" data-setreserve="${suggestReserve}">ใช้ยอดนี้</button></div>` : ''}
     </section>
     <div class="two">
       <div class="sec">${secH('CALC', 'ที่มาของตัวเลข', 'tax')}<div class="card">
