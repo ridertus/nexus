@@ -130,27 +130,31 @@ function render() {
   const views: Record<string, () => [string, string]> = {
     home: viewHome, ledger: viewLedger, plan: () => viewPlan(r.sub), more: () => viewMore(r.sub),
   };
-  const [top, body] = (views[r.page] ?? viewHome)();
-  $('#topbar')!.innerHTML = top;
-  $('#view')!.innerHTML = body;
+  const [head, body] = (views[r.page] ?? viewHome)();
+  $('#topbar')!.innerHTML = systemStrip();
+  $('#view')!.innerHTML = head + body;
   afterRender(r);
 }
 
-const topMain = (title: string) => {
-  const cyc = svc.getSafeToSpend();
-  if (svc.getSettings().incomeMode === 'none') {
-    const rw = svc.getRunway();
-    return `<div class="wordmark" aria-label="NEXUS"><b>NEXUS</b><span>PERSONAL FINANCE OS</span></div>
-    <div class="title sr">${esc(title)}</div><div class="spacer"></div>
-    <div class="cycle-pill"><span class="d">${rw.days === null ? '—' : rw.days > 999 ? '999+' : rw.days}</span>วันที่เงินพอใช้</div>`;
-  }
-  return `<div class="wordmark" aria-label="NEXUS"><b>NEXUS</b><span>PERSONAL FINANCE OS</span></div>
-    <div class="title sr">${esc(title)}</div><div class="spacer"></div>
-    <div class="cycle-pill" title="รอบ ${esc(cycleLabel(cyc.cycle))}"><span class="d">${String(cyc.daysLeft).padStart(2, '0')}</span>วันที่เหลือในรอบ</div>`;
-};
-const topSub = (title: string, back: string) =>
-  `<a class="icon-btn" href="${back}" aria-label="กลับ">${ic('back')}</a><div class="title">${esc(title)}</div><div class="spacer"></div>`;
-const topTitle = (title: string, right = '') => `<div class="title" style="font-size:20px">${esc(title)}</div><div class="spacer"></div>${right}`;
+// System strip (spec 4.1): tri-colour mark + NEXUS // FINANCE OS · date and time in Bangkok, Gregorian year.
+const bkkTime = () => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());
+const stripStamp = () => `${svc.today().replace(/-/g, '.')} · ${bkkTime()}`;
+const systemStrip = () => `<div class="sys-l"><i class="tri-v" aria-hidden="true"></i><span class="sys">NEXUS // FINANCE OS</span></div>
+  <span class="sys" id="sys-clock">${stripStamp()}</span>`;
+setInterval(() => { const c = $('#sys-clock'); if (c) c.textContent = stripStamp(); }, 20000);
+
+const MON_EN = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+/**
+ * Module header (spec 4.2, Decision 8): breadcrumb + hatch tail, Thai <h1> + EN subtitle,
+ * yellow lead → ticked rule → optional counter chip. Sub-pages get a back link before the breadcrumb.
+ */
+function moduleHeader(o: { crumb: string; th: string; en: string; counter?: string; back?: string }) {
+  return `<header class="mh">
+    <div class="mh-crumb">${o.back ? `<a class="icon-btn mh-back" href="${o.back}" aria-label="กลับ">${ic('back')}</a>` : ''}<span aria-hidden="true">// NEXUS / ${esc(o.crumb)}</span><i class="mh-hatch" aria-hidden="true"></i></div>
+    <div class="mh-title"><h1 tabindex="-1">${esc(o.th)}</h1><span class="mh-en" aria-hidden="true">${esc(o.en)}</span></div>
+    <div class="mh-rule" aria-hidden="true"><i class="lead"></i><i class="tk"></i>${o.counter ? `<span class="chip-y">${esc(o.counter)}</span>` : ''}</div>
+  </header>`;
+}
 
 // ------------------------------------------------------------------ HOME
 function viewHome(): [string, string] {
@@ -248,7 +252,7 @@ function viewHome(): [string, string] {
       ${goalsHtml ? `<div class="sec">${secH('05 GOALS', 'เป้าหมาย', 'target', { href: '#plan-goals', label: 'จัดการ' })}${goalsHtml}</div>` : ''}
     </div>
   </div>`;
-  return [topMain('หน้าหลัก'), body];
+  return [moduleHeader({ crumb: 'HOME', th: 'ภาพรวม', en: 'OVERVIEW', counter: MON_EN[Number(today.slice(5, 7)) - 1] }), body];
 }
 
 function heroRunway(todayExp: number) {
@@ -333,7 +337,7 @@ function viewLedger(): [string, string] {
     </div>
     <div id="ledger-list" style="margin-top:8px"></div>
   </div>`;
-  return [topTitle('รายการ'), body];
+  return [moduleHeader({ crumb: 'LEDGER', th: 'รายการ', en: 'TRANSACTIONS' }), body];
 }
 
 function renderLedgerList() {
@@ -463,7 +467,7 @@ function viewPlan(sub = 'budget'): [string, string] {
       <button class="btn block" data-act="new-goal" style="margin-top:10px">${ic('plus')}เพิ่มเป้าหมาย</button>
       <p class="fine" style="margin-top:10px">"ออมเพิ่ม" = โอนจากบัญชีใช้จ่ายไปบัญชีเงินออม · ยอดออมรายเดือนถูกกันไว้ใน "ใช้ได้" จนกว่าจะโอนจริง</p></div>`;
   }
-  return [topTitle('แผน'), body];
+  return [moduleHeader({ crumb: 'PLAN', th: 'แผน', en: 'PLAN', counter: `${['budget', 'bills', 'goals'].indexOf(tab) + 1} / 3` }), body];
 }
 const monthlyBills = () => svc.getBills().filter(b => b.active).reduce((a, b) => a + (b.cadence === 'yearly' ? Math.round(b.amount / 12) : b.amount), 0);
 
@@ -484,7 +488,7 @@ function viewMore(sub?: string): [string, string] {
     ${item('#more-backup', 'backup', 'สำรอง / กู้คืนข้อมูล', prefs.lastBackup ? `ล่าสุด ${U.dMed(prefs.lastBackup)}` : 'ยังไม่เคยสำรอง')}
   </div></div>
   <div class="sec card pad"><div class="micro">NEXUS // v${APP_VERSION}</div><p class="fine" style="margin-top:6px">ข้อมูลทั้งหมดเก็บในเบราว์เซอร์ของเครื่องนี้เท่านั้น ไม่มีเซิร์ฟเวอร์ ไม่มีบัญชีผู้ใช้ ไฟล์สำรองใช้ร่วมกับ NEXUS CLI ได้</p><div class="tri" style="margin-top:12px"></div></div>`;
-  return [topTitle('เพิ่มเติม'), body];
+  return [moduleHeader({ crumb: 'MORE', th: 'อื่น ๆ', en: 'SYSTEM' }), body];
 }
 
 function viewAccounts(): [string, string] {
@@ -500,7 +504,7 @@ function viewAccounts(): [string, string] {
     <div class="sec"><div class="card rows">${accs.map(a => `<button class="row" data-acc="${a.id}"><span class="ic">${ic(accIcon(a.kind))}</span><span class="mid"><span class="n">${esc(a.name)}</span><span class="s">${{ bank: 'บัญชีธนาคาร', wallet: 'e-Wallet', cash: 'เงินสด' }[a.kind]}${a.spendable ? '' : ' · เงินออม (ไม่นับใน "ใช้ได้")'}</span></span><span class="amt ${a.balance < 0 ? 'neg' : ''}">${a.balance < 0 ? '−' + baht(-a.balance) : baht(a.balance)}</span></button>`).join('')}</div>
     <button class="btn block" data-act="new-acc" style="margin-top:10px">${ic('plus')}เพิ่มบัญชี</button>
     <p class="fine" style="margin-top:10px">ยอดไม่ตรงกับแอปธนาคาร? แตะบัญชีแล้วใส่ "ยอดจริงตอนนี้" — แนะนำให้เทียบยอดสัปดาห์ละครั้ง</p></div>`;
-  return [topSub('บัญชีและยอดเงิน', '#more'), body];
+  return [moduleHeader({ crumb: 'MORE / ACCOUNTS', th: 'บัญชีและยอดเงิน', en: 'ACCOUNTS', back: '#more' }), body];
 }
 
 function viewCategories(): [string, string] {
@@ -510,7 +514,7 @@ function viewCategories(): [string, string] {
     <div class="sec"><div class="card rows">${cats.map(c => `<button class="row" data-cat="${c.id}" ${c.archived ? 'style="opacity:.5"' : ''}><span class="ic">${ic(catIcon(c))}</span><span class="mid"><span class="n">${esc(c.name)}</span><span class="s">${[c.monthlyPlan ? 'งบ ' + baht(c.monthlyPlan) : '', c.taxSection ? 'นับภาษี ' + c.taxSection : '', c.archived ? 'ซ่อนอยู่' : ''].filter(Boolean).join(' · ') || '&nbsp;'}</span></span><span class="chev" style="width:18px;color:var(--ink-3)">${ic('chevron')}</span></button>`).join('')}</div>
     <button class="btn block" data-act="new-cat" style="margin-top:10px">${ic('plus')}เพิ่มหมวด${k === 'expense' ? 'รายจ่าย' : 'รายรับ'}</button>
     ${k === 'income' ? '<p class="fine" style="margin-top:10px">ตั้ง "ประเภทเงินได้" ให้หมวดที่ต้องเสียภาษี เช่น เงินเดือน = 40(1), ฟรีแลนซ์/ค่าจ้างรายงาน = 40(2), ขายของ = 40(8) เพื่อให้หน้าภาษีคำนวณได้</p>' : '<p class="fine" style="margin-top:10px">หมวดที่ใช้แล้วลบไม่ได้ (ประวัติจะหาย) แต่ซ่อนได้</p>'}</div>`;
-  return [topSub('หมวดหมู่', '#more'), body];
+  return [moduleHeader({ crumb: 'MORE / CATEGORIES', th: 'หมวดหมู่', en: 'CATEGORIES', back: '#more' }), body];
 }
 
 function viewSettings(): [string, string] {
@@ -528,7 +532,7 @@ function viewSettings(): [string, string] {
     <label class="check"><input type="checkbox" id="set-hap" ${prefs.haptics ? 'checked' : ''}>สั่นเบา ๆ เมื่อบันทึก (Android)</label>
     ${installEvt ? `<button class="btn block dark" data-act="install" style="margin-top:12px">${ic('phone')}ติดตั้งเป็นแอป</button>` : ''}
   </div>`;
-  return [topSub('ตั้งค่า', '#more'), body];
+  return [moduleHeader({ crumb: 'MORE / SETTINGS', th: 'ตั้งค่า', en: 'SETTINGS', back: '#more' }), body];
 }
 
 function viewBackup(): [string, string] {
@@ -551,7 +555,7 @@ function viewBackup(): [string, string] {
       <p class="fine" style="margin:6px 0 12px">ลบข้อมูลทั้งหมดในเครื่องนี้แล้วเริ่มใหม่</p>
       <button class="btn danger" data-act="reset">ล้างข้อมูลทั้งหมด</button>
     </div></div>`;
-  return [topSub('สำรอง / กู้คืนข้อมูล', '#more'), body];
+  return [moduleHeader({ crumb: 'MORE / BACKUP', th: 'สำรอง / กู้คืนข้อมูล', en: 'BACKUP', back: '#more' }), body];
 }
 
 // ------------------------------------------------------------------ TAX
@@ -606,7 +610,7 @@ function viewTax(): [string, string] {
     </div>
     <div class="sec card pad"><p class="fine"><b>ประมาณการเพื่อวางแผนเท่านั้น</b> ไม่ใช่การยื่นภาษี ยืนยันตัวเลขจริงที่ efiling.rd.go.th · ภ.ง.ด.90/91 ของปีภาษี ${U.be(year)} ยื่นภายใน 31 มี.ค. ${U.be(year + 1)} (ยื่นออนไลน์มักได้ขยายถึงต้นเมษายน — ตรวจประกาศกรมสรรพากรของปีนั้น) · อัตราภาษีตรวจล่าสุด ${U.dMed(e.rules.verifiedAt)}</p>
     <p class="fine" style="margin-top:6px">ประมาณทั้งปี = ยอดจริง + ค่าเฉลี่ยต่อเดือนตั้งแต่เดือนแรกที่บันทึก × เดือนที่เหลือ</p></div>`;
-  return [topSub('ภาษี', '#more'), body];
+  return [moduleHeader({ crumb: 'MORE / TAX', th: 'ภาษี', en: 'TAX CENTER', back: '#more' }), body];
 }
 function rulesBrackets() {
   const B = [0, 150000, 300000, 500000, 750000, 1000000, 2000000, 5000000];
