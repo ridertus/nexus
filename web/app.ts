@@ -153,7 +153,21 @@ function render() {
   const [head, body] = (views[r.page] ?? viewHome)();
   $('#topbar')!.innerHTML = systemStrip();
   $('#view')!.innerHTML = head + body;
+  // Motion (spec 5): stagger in only when the route changes — never on same-page re-renders
+  // (saving an entry, visibilitychange, storage sync, ledger cycle paging).
+  const key = `${r.page}/${r.sub ?? ''}`;
+  if (key !== lastRouteKey) { staggerIn($('#view')!); lastRouteKey = key; }
   afterRender(r);
+}
+let lastRouteKey = '';
+/** Give each top-level block `.st` and `--i` (capped at 14). Layout wrappers (.home-grid, .two) are looked through. */
+function staggerIn(view: HTMLElement) {
+  const items: HTMLElement[] = [];
+  for (const el of Array.from(view.children) as HTMLElement[]) {
+    if (el.matches('.home-grid, .two')) for (const col of Array.from(el.children)) items.push(...(Array.from(col.children) as HTMLElement[]));
+    else items.push(el);
+  }
+  items.forEach((el, i) => { el.classList.add('st'); el.style.setProperty('--i', String(Math.min(i, 14))); });
 }
 
 // System strip (spec 4.1): tri-colour mark + NEXUS // FINANCE OS · date and time in Bangkok, Gregorian year.
