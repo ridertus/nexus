@@ -1069,7 +1069,7 @@ function onboarding(step = 0, draft: { bal: Record<string, string>; cycle: numbe
   const accs = svc.getAccounts();
   const stepTag = (n: number) => `<div class="steps" aria-hidden="true"><b>${String(n).padStart(2, '0')}</b> / 03</div>`;
   if (step === 0) {
-    el.innerHTML = `<div class="tri"></div><div class="onb-top"><div class="micro">// PERSONAL FINANCE OS</div></div>
+    el.innerHTML = `<div class="tri" aria-hidden="true"></div><div class="onb-top"><div class="micro">// PERSONAL FINANCE OS</div></div>
       <div class="onb-b"><div class="onb-hero">NEX<span>US</span></div>
         <p style="font-size:18px;margin-top:18px;font-weight:500">รู้ทุกวันว่า "ใช้ได้อีกเท่าไหร่" โดยไม่ต้องเดา</p>
         <div class="card rows" style="margin-top:20px">
@@ -1080,12 +1080,12 @@ function onboarding(step = 0, draft: { bal: Record<string, string>; cycle: numbe
       <div class="onb-f"><button class="btn primary block" data-o="start">เริ่มตั้งค่า (1 นาที)</button><button class="btn block" data-o="demo">ลองดูด้วยข้อมูลตัวอย่างก่อน</button>
         <label class="btn block" style="cursor:pointer">กู้คืนจากไฟล์สำรอง<input type="file" id="onb-restore" accept=".json" class="sr"></label></div>`;
   } else if (step === 1) {
-    el.innerHTML = `<div class="tri"></div><div class="onb-top">${stepTag(1)}</div>
+    el.innerHTML = `<div class="tri" aria-hidden="true"></div><div class="onb-top">${stepTag(1)}</div>
       <div class="onb-b"><h2 style="font-size:24px">ตอนนี้มีเงินอยู่เท่าไหร่?</h2><p class="muted" style="margin:6px 0 18px">เปิดแอปธนาคาร/วอลเล็ตแล้วใส่ยอดตามจริง ไม่มีใส่ 0 ได้ — เปลี่ยนชื่อหรือเพิ่มบัญชีได้ทีหลัง</p>
       ${accs.map(a => `<label class="field"><span>${ic(accIcon(a.kind)).replace('<svg', '<svg style="width:16px;height:16px;vertical-align:-3px;margin-right:6px"')}${esc(a.name)}${a.spendable ? '' : ' (เงินออม)'}</span><input data-bal="${a.id}" inputmode="decimal" placeholder="0" value="${esc(draft.bal[a.id] ?? '')}"></label>`).join('')}</div>
       <div class="onb-f"><button class="btn primary block" data-o="next1">ต่อไป</button><button class="btn block" data-o="back0">ย้อนกลับ</button></div>`;
   } else if (step === 2) {
-    el.innerHTML = `<div class="tri"></div><div class="onb-top">${stepTag(2)}</div>
+    el.innerHTML = `<div class="tri" aria-hidden="true"></div><div class="onb-top">${stepTag(2)}</div>
       <div class="onb-b"><h2 style="font-size:24px">มีรายได้ประจำไหม?</h2><p class="muted" style="margin:6px 0 18px">ใช้กำหนดว่าหน้าหลักจะบอกอะไร — เปลี่ยนได้ทีหลังในตั้งค่า</p>
       <div class="card rows">
         <button class="row" data-onb-mode="regular" aria-pressed="${!draft.none}" style="${!draft.none ? 'box-shadow:inset 4px 0 0 var(--signal)' : ''}"><span class="ic">${ic('salary')}</span><span class="mid"><span class="n">มีรายได้ประจำ</span><span class="s">บอก "ใช้ได้อีกเท่าไหร่ในรอบนี้" นับตามวันเงินเข้า</span></span>${!draft.none ? ic('check') : ''}</button>
@@ -1096,7 +1096,7 @@ function onboarding(step = 0, draft: { bal: Record<string, string>; cycle: numbe
       <label class="field" style="margin-top:14px"><span>หรือเลือกวันอื่น</span><select id="onb-cyc">${Array.from({ length: 28 }, (_, i) => opt(String(i + 1), `วันที่ ${i + 1}`, draft.cycle === i + 1)).join('')}</select></label>`}</div>
       <div class="onb-f"><button class="btn primary block" data-o="next2">ต่อไป</button><button class="btn block" data-o="back1">ย้อนกลับ</button></div>`;
   } else {
-    el.innerHTML = `<div class="tri"></div><div class="onb-top">${stepTag(3)}</div>
+    el.innerHTML = `<div class="tri" aria-hidden="true"></div><div class="onb-top">${stepTag(3)}</div>
       <div class="onb-b"><h2 style="font-size:24px">พร้อมแล้ว</h2>
       <div class="card rows" style="margin-top:16px">
         <div class="row"><span class="ic" style="background:var(--signal);color:#000;border-color:#000">${ic('plus')}</span><span class="mid"><span class="n">จดทันทีหลังสแกนจ่าย</span><span class="s">ปุ่ม + สีเหลืองตรงกลาง — รายการที่จดบ่อยจะขึ้นให้แตะทีเดียว</span></span></div>

@@ -88,13 +88,13 @@
   --chart-out: #F97501;      /* = --warn; blue/orange differ in lightness too */
   --shadow: none;
 
-  /* legacy aliases — kept so not-yet-restyled rules render sensibly; removed in the a11y pass */
-  --f-display: var(--f-num);
-  --block: #161616;          /* dark chip — same in both themes */
+  /* dark chip (segmented control, filter chips, chart tip) — same in both themes */
+  --block: #161616;
   --block-ink: #EEEEEE;
   --block-ink-2: #A9A9A9;
-  --magenta: var(--tri-1);
-  --cyan: var(--info);
+  /* selected segment / chip: a light plate on dark ground (a dark chip was near-invisible on --surface) */
+  --sel-bg: #E4E5E0;
+  --sel-ink: #111111;
   color-scheme: dark;
 }
 
@@ -111,10 +111,12 @@
   --ink-body: #1A1A1A;
   --ink-2: #4F4F4F;
   --ink-3: #666666;
-  /* status as text on light ground: darker shades. Yellow is never text here. */
-  --pos: #3F8F14;
-  --info: #0B7DC0;
-  --warn: #D05A00;
+  /* status as text on light ground: darker shades. Yellow is never text here.
+     Spec 2.2 values (#3F8F14 / #0B7DC0 / #D05A00) measured 3.4–4.1:1, so they are darkened
+     at the same hue to pass 4.5:1 on --bg (Decision 13). */
+  --pos: #347611;
+  --info: #0A6DA8;
+  --warn: #AF4C00;
   --neg: #C8282C;
   --neg-text: #C8282C;
   --hatch: repeating-linear-gradient(-45deg, #BDBDB8 0 1px, transparent 1px 3.5px);
@@ -122,14 +124,16 @@
   --hatch-bar: repeating-linear-gradient(-45deg, #85857F 0 1px, transparent 1px 3.5px);
   --lock-1: #DADAD5; --lock-2: #CBCBC6; --lock-3: #BCBCB7;
   --well: #E4E4E0;
+  --sel-bg: #161616;
+  --sel-ink: #EEEEEE;
   --paid-side: var(--plate-lo);
   --paid-ink: #111111;
   --paid-mark: rgba(0,0,0,.09);
   --track: #DCDCD7;
   --neg-bg: #FBE9E9;
   --warn-bg: #FFF1E2;
-  --chart-in: #0B7DC0;
-  --chart-out: #D05A00;
+  --chart-in: #0A6DA8;
+  --chart-out: #AF4C00;
   color-scheme: light;
 }
 
@@ -148,11 +152,16 @@ button { cursor: pointer; background: none; border: 0; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 
+/* focus on clipped shapes: draw the ring inside the shape */
+.btn.primary:focus-visible, .boot-enter:focus-visible, .fab:focus-visible { outline: 2px solid #111111; outline-offset: -5px; }
+.nav a[aria-current="page"]:focus-visible, .rail a:focus-visible, .rail button:focus-visible { outline: 2px solid var(--signal); outline-offset: -3px; }
+.pl-pay:focus-visible { outline: 2px solid var(--signal); outline-offset: -5px; }
+
 /* motion (spec 5): short, self-finishing enter stagger on route change; switched off by the rule above */
 @keyframes stIn { from { opacity: 0; transform: translateY(10px); } 60% { opacity: 1; } to { opacity: 1; transform: none; } }
 .st { animation: stIn var(--t-enter) var(--ease) backwards; animation-delay: calc(60ms + var(--i, 0) * 36ms); }
 
-.num { font-family: var(--f-display); font-variant-numeric: tabular-nums; font-weight: 600; letter-spacing: .01em; }
+.num { font-family: var(--f-num); font-variant-numeric: tabular-nums; font-weight: 600; letter-spacing: .01em; }
 .mono { font-family: var(--f-mono); }
 .micro { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
 .muted { color: var(--ink-2); }
@@ -304,7 +313,7 @@ button.row:active { background: var(--well); }
 .row .mid { flex: 1; min-width: 0; }
 .row .mid .n { display: block; font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row .mid .s { display: block; font-size: 12.5px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.row .amt { font-family: var(--f-display); font-weight: 600; font-size: 16px; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.row .amt { font-family: var(--f-num); font-weight: 600; font-size: 16px; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 .row .amt small { display: block; font-family: var(--f-body); font-weight: 400; font-size: 11.5px; color: var(--ink-2); }
 .row.voided { opacity: .5; }
 .row.voided .amt { text-decoration: line-through; }
@@ -333,7 +342,6 @@ button.row:active { background: var(--well); }
 }
 .pl-pay:hover { background: #2A2A2A; }
 .pl-pay:active { transform: scale(.98); }
-.pl-pay:focus-visible { outline: 2px solid #111111; outline-offset: 2px; }
 .pl-dia { position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; background: var(--warn); transform: rotate(45deg); pointer-events: none; }
 /* paid */
 .plate.paid .pl-body { background: var(--done-body); box-shadow: none; }
@@ -365,7 +373,7 @@ button.row:active { background: var(--well); }
 .bud { padding: 12px 14px; display: block; width: 100%; text-align: left; }
 .bud .top { display: flex; align-items: baseline; gap: 8px; }
 .bud .top .n { font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bud .top .v { font-family: var(--f-display); font-weight: 600; font-variant-numeric: tabular-nums; font-size: 14px; }
+.bud .top .v { font-family: var(--f-num); font-weight: 600; font-variant-numeric: tabular-nums; font-size: 14px; }
 .bud .top .v span { color: var(--ink-3); font-weight: 500; }
 .bud .bot { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-2); margin-top: 5px; }
 
@@ -395,13 +403,13 @@ a.btn { text-decoration: none; }
 .segctl { display: flex; border: 1px solid var(--line-2); background: var(--surface); }
 .segctl button { flex: 1; min-height: 44px; font-size: 14px; font-weight: 500; color: var(--ink-2); padding: 0 10px; transition: background-color .18s var(--snap), color .18s var(--snap); }
 .segctl button + button { border-left: 1px solid var(--line); }
-.segctl button[aria-pressed="true"] { background: var(--block); color: var(--block-ink); font-weight: 600; }
+.segctl button[aria-pressed="true"] { background: var(--sel-bg); color: var(--sel-ink); font-weight: 600; }
 
 .chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
 .chips::-webkit-scrollbar { display: none; }
-.chip { flex-shrink: 0; min-height: 38px; padding: 0 12px; border: 1px solid var(--line-2); background: var(--surface); font-size: 13.5px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.chip { flex-shrink: 0; min-height: 44px; padding: 0 12px; border: 1px solid var(--line-2); background: var(--surface); font-size: 13.5px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .chip svg { width: 16px; height: 16px; }
-.chip[aria-pressed="true"] { background: var(--block); color: var(--block-ink); border-color: var(--block); }
+.chip[aria-pressed="true"] { background: var(--sel-bg); color: var(--sel-ink); border-color: var(--sel-bg); }
 .chip .num { font-size: 13px; }
 
 /* ---------------- goal card (spec 4.6) ---------------- */
@@ -430,7 +438,7 @@ a.goalc:hover { border-color: var(--line-2); }
 .chart-legend i { width: 10px; height: 10px; display: inline-block; }
 .chart svg { width: 100%; height: 170px; display: block; margin-top: 8px; overflow: visible; }
 .chart .tip { position: absolute; pointer-events: none; background: var(--block); color: var(--block-ink); font-size: 12px; padding: 8px 10px; white-space: nowrap; transform: translate(-50%, -100%); line-height: 1.5; z-index: 3; }
-.chart .tip b { font-family: var(--f-display); font-weight: 600; }
+.chart .tip b { font-family: var(--f-num); font-weight: 600; }
 
 /* summary tiles (Ledger / Plan / Accounts) — same tile look, column count unchanged */
 .tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
@@ -488,8 +496,8 @@ a.goalc:hover { border-color: var(--line-2); }
 
 /* quick add */
 .qa-amt { display: flex; align-items: baseline; justify-content: flex-end; gap: 4px; padding: 6px 2px 2px; min-height: 64px; }
-.qa-amt .cur { font-family: var(--f-display); font-size: 26px; color: var(--ink-3); font-weight: 600; }
-.qa-amt .v { font-family: var(--f-display); font-size: 46px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; word-break: break-all; text-align: right; }
+.qa-amt .cur { font-family: var(--f-num); font-size: 26px; color: var(--ink-3); font-weight: 600; }
+.qa-amt .v { font-family: var(--f-num); font-size: 46px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; word-break: break-all; text-align: right; }
 .qa-amt .v.ph { color: var(--ink-3); }
 .qa-expr { text-align: right; font-family: var(--f-mono); font-size: 12px; color: var(--ink-2); min-height: 18px; }
 .qa-lab { font-size: 12.5px; color: var(--ink-2); margin: 12px 0 6px; display: flex; justify-content: space-between; }
@@ -499,7 +507,7 @@ a.goalc:hover { border-color: var(--line-2); }
 .cat span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; }
 .cat[aria-pressed="true"] { background: var(--signal); color: #000; border-color: #000; }
 .keypad { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border-top: 1px solid var(--line); flex-shrink: 0; }
-.keypad button { height: 52px; background: var(--surface-2); font-family: var(--f-display); font-size: 22px; font-weight: 600; }
+.keypad button { height: 52px; background: var(--surface-2); font-family: var(--f-num); font-size: 22px; font-weight: 600; }
 .keypad button:active { background: var(--well); }
 .keypad button svg { width: 24px; height: 24px; margin: 0 auto; display: block; }
 .keypad .op { background: var(--surface); color: var(--ink-2); font-size: 20px; }
@@ -531,9 +539,10 @@ a.goalc:hover { border-color: var(--line-2); }
 .toast.err .t-h { color: #FF8A8C; }  /* toast is dark in both themes */
 
 /* tax */
-.kv { display: flex; justify-content: space-between; gap: 10px; padding: 10px 14px; font-size: 14px; }
+.kv { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 14px; font-size: 14px; }
+button.kv { min-height: 44px; text-align: left; }
 .kv .k { color: var(--ink-2); }
-.kv .v { font-family: var(--f-display); font-weight: 600; font-variant-numeric: tabular-nums; }
+.kv .v { font-family: var(--f-num); font-weight: 600; font-variant-numeric: tabular-nums; }
 .kv.total { border-top: 1px solid var(--line-2); font-weight: 600; }
 .kv.total .k { color: var(--ink); }
 table.bands { width: 100%; border-collapse: collapse; font-size: 13.5px; }
@@ -552,7 +561,7 @@ table.bands tr.hit td:first-child { box-shadow: inset 4px 0 0 var(--signal); }
 /* onboarding */
 .onb { position: fixed; inset: 0; z-index: 70; background: var(--bg); overflow-y: auto; display: flex; flex-direction: column; }
 .onb-top { padding: 24px 20px 0; }
-.onb-hero { font-family: var(--f-display); font-weight: 700; font-size: clamp(44px, 14vw, 72px); line-height: .95; letter-spacing: .02em; }
+.onb-hero { font-family: var(--f-num); font-weight: 700; font-size: clamp(44px, 14vw, 72px); line-height: .95; letter-spacing: .02em; }
 .onb-hero span { display: inline-block; background: var(--signal); color: #000; padding: 0 8px; margin-left: -2px; }
 .onb-b { padding: 20px; flex: 1; max-width: 560px; width: 100%; margin: 0 auto; }
 .onb-f { padding: 12px 20px calc(16px + var(--safe-b)); display: flex; flex-direction: column; gap: 8px; max-width: 560px; width: 100%; margin: 0 auto; }
@@ -562,7 +571,7 @@ table.bands tr.hit td:first-child { box-shadow: inset 4px 0 0 var(--signal); }
 /* demo banner */
 .demo-bar { background: repeating-linear-gradient(135deg, var(--signal) 0 10px, #000 10px 20px); padding: 3px 0; }
 .demo-bar .in { background: var(--block); color: var(--block-ink); display: flex; align-items: center; gap: 10px; padding: 6px 12px; font-size: 12.5px; }
-.demo-bar button { margin-left: auto; color: var(--signal); font-weight: 600; text-decoration: underline; min-height: 32px; }
+.demo-bar button { margin: -6px 0 -6px auto; color: var(--signal); font-weight: 600; text-decoration: underline; min-height: 44px; padding: 0 4px; }
 
 /* ---------------- daily boot log (spec 6) — always dark, so colours are literal ---------------- */
 .boot { position: fixed; inset: 0; z-index: 90; background: #0E0E0E; color: #EEEEEE; overflow-y: auto; cursor: pointer; }
@@ -601,7 +610,7 @@ table.bands tr.hit td:first-child { box-shadow: inset 4px 0 0 var(--signal); }
     display: flex; flex-direction: column; align-items: center; width: 88px; flex-shrink: 0;
     background: var(--sunken); color: #EEEEEE; border-right: 1px solid var(--line); position: sticky; top: 0; height: 100dvh; padding: 16px 0;
   }
-  .rail .brand { font-family: var(--f-display); font-weight: 700; letter-spacing: .14em; font-size: 15px; margin-bottom: 4px; }
+  .rail .brand { font-family: var(--f-num); font-weight: 700; letter-spacing: .14em; font-size: 15px; margin-bottom: 4px; }
   .rail .brand-sub { font-family: var(--f-mono); font-size: 9px; letter-spacing: .14em; color: #8A8A8A; margin-bottom: 18px; }
   .rail a, .rail button { width: 72px; min-height: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: #9A9A9A; font-family: var(--f-body); font-size: 11.5px; text-decoration: none; margin-bottom: 4px; }
   .rail a svg, .rail button svg { width: 22px; height: 22px; }
