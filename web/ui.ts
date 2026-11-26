@@ -104,7 +104,7 @@ export function toast(msg: string, opts: { undo?: () => void; error?: boolean; a
   if (!el) { el = document.createElement('div'); el.id = 'toast'; el.className = 'toast'; el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite'); document.body.append(el); }
   el.classList.toggle('err', !!opts.error);
   const act = opts.undo ? { label: 'เลิกทำ', run: opts.undo, icon: ic('undo') } : opts.action ? { ...opts.action, icon: '' } : null;
-  el.innerHTML = `<span>${esc(msg)}</span>${act ? `<button type="button">${act.icon}${esc(act.label)}</button>` : ''}`;
+  el.innerHTML = `<span class="t-msg"><b class="t-h" aria-hidden="true">${opts.error ? 'ERROR' : 'NEXUS'}</b>${esc(msg)}</span>${act ? `<button type="button">${act.icon}${esc(act.label)}</button>` : ''}`;
   if (act) el.querySelector('button')!.onclick = () => { el!.classList.remove('on'); act.run(); };
   requestAnimationFrame(() => el!.classList.add('on'));
   clearTimeout(toastTimer);

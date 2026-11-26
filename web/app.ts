@@ -56,10 +56,19 @@ function tryDo(fn: () => unknown): boolean {
 function guard<T>(fn: () => T): T | undefined {
   try { return fn(); } catch (e) { U.toast((e as Error).message, { error: true }); U.buzz(40); return undefined; }
 }
-const secH = (code: string, title: string, icon: string, link?: { href: string; label: string }) => `
-  <div class="sec-h"><div class="ix" aria-hidden="true">${ic(icon)}</div>
-    <div class="tt"><span class="micro" aria-hidden="true">// ${esc(code)}</span><h2>${esc(title)}</h2></div>
+/** Section header (spec 3): Thai h2 + tracked EN label, optional counter chip and link. `code` keeps v2's
+ *  "02 BUDGET" style ids; only the words are shown. `icon` is kept for call-site compatibility. */
+const secH = (code: string, title: string, _icon: string, link?: { href: string; label: string }, counter?: { text: string; sr: string }) => `
+  <div class="sec-h"><div class="tt"><h2>${esc(title)}</h2><span class="sec-en" aria-hidden="true">${esc(code.replace(/^\d+\s+/, ''))}</span></div>
+    ${counter ? `<span class="chip-y"><span aria-hidden="true">${esc(counter.text)}</span><span class="sr">${esc(counter.sr)}</span></span>` : ''}
     ${link ? `<a class="link" href="${link.href}">${esc(link.label)}${ic('chevron')}</a>` : ''}</div>`;
+
+/** Empty state (spec 4.9, Decision 7): hatched box, EN heading (decorative), Thai title + description. */
+const emptyBox = (en: string, title: string, desc = '', action = '') =>
+  `<div class="empty"><span class="empty-en" aria-hidden="true">${en}</span><b>${title}</b>${desc ? `<span>${desc}</span>` : ''}${action}</div>`;
+
+/** Chip on warn / neg notices (spec 4.10); the Thai sentence beside it carries the meaning. */
+const noteChip = (kind: 'warn' | 'neg') => `<span class="schip ${kind}" aria-hidden="true">${kind === 'neg' ? 'ALERT' : 'WARN'}</span>`;
 
 /** Numeral with the unit after it (spec 4.3): <n>int<dec>.xx</dec></n><cur>฿</cur> */
 function numCur(satang: number, unit = '฿') {
@@ -236,39 +245,38 @@ function viewHome(): [string, string] {
   // notices
   const notes: string[] = [];
   const overdue = s.unpaidBills.filter(b => b.due < today);
-  for (const b of overdue.slice(0, 2)) notes.push(`<div class="notice neg">${ic('alert')}<span><b>${esc(b.name)}</b> เลยกำหนด ${-daysBetween(today, b.due)} วัน · ${baht(b.amount)}</span><button class="act" data-pay="${b.billId}">จ่ายแล้ว</button></div>`);
+  for (const b of overdue.slice(0, 2)) notes.push(`<div class="notice neg">${noteChip('neg')}<span><b>${esc(b.name)}</b> เลยกำหนด ${-daysBetween(today, b.due)} วัน · ${baht(b.amount)}</span><button class="act" data-pay="${b.billId}">จ่ายแล้ว</button></div>`);
   const txCount = svc.snapshot().transactions.length;
   const lastB = prefs.lastBackup;
   if (!prefs.demo && txCount >= 15 && (!lastB || daysBetween(lastB, today) > 14)) {
-    notes.push(`<div class="notice warn">${ic('backup')}<span>${lastB ? `สำรองข้อมูลล่าสุด ${daysBetween(lastB, today)} วันก่อน` : 'ยังไม่เคยสำรองข้อมูล'} — ข้อมูลอยู่ในเครื่องนี้เท่านั้น</span><a class="act" href="#more-backup">สำรอง</a></div>`);
+    notes.push(`<div class="notice warn">${noteChip('warn')}<span>${lastB ? `สำรองข้อมูลล่าสุด ${daysBetween(lastB, today)} วันก่อน` : 'ยังไม่เคยสำรองข้อมูล'} — ข้อมูลอยู่ในเครื่องนี้เท่านั้น</span><a class="act" href="#more-backup">สำรอง</a></div>`);
   }
   if (installEvt && !prefs.dismissInstall) notes.push(`<div class="notice">${ic('phone')}<span>ติดตั้ง NEXUS เป็นแอป เปิดได้จากหน้าจอหลัก ใช้ได้แม้ออฟไลน์</span><button class="act" data-act="install">ติดตั้ง</button></div>`);
 
-  if (!storage.persistent) notes.unshift(`<div class="notice neg">${ic('alert')}<span>เบราว์เซอร์นี้ไม่อนุญาตให้เก็บข้อมูล — ข้อมูลจะหายเมื่อปิดหน้านี้</span></div>`);
+  if (!storage.persistent) notes.unshift(`<div class="notice neg">${noteChip('neg')}<span>เบราว์เซอร์นี้ไม่อนุญาตให้เก็บข้อมูล — ข้อมูลจะหายเมื่อปิดหน้านี้</span></div>`);
   // bills
   const bills = s.unpaidBills.slice(0, 4);
   const billsHtml = svc.getBills().filter(b => b.active).length === 0
-    ? `<div class="card empty"><b>ยังไม่มีบิลประจำ</b>เพิ่มค่าห้อง ค่าเน็ต Subscription เพื่อให้ "ใช้ได้" แม่นขึ้น<br><a class="btn sm" href="#plan-bills" style="margin-top:12px">เพิ่มบิล</a></div>`
-    : bills.length === 0 ? `<div class="card empty"><b>จ่ายครบแล้วรอบนี้</b>ไม่มีบิลค้าง</div>`
-    : `<div class="card rows">${bills.map(b => billRow(b, today)).join('')}</div>`;
+    ? emptyBox('NO BILLS', 'ยังไม่มีบิลประจำ', 'เพิ่มค่าห้อง ค่าเน็ต Subscription เพื่อให้ "ใช้ได้" แม่นขึ้น', `<a class="btn sm" href="#plan-bills">เพิ่มบิล</a>`)
+    : bills.length === 0 ? emptyBox('ALL PAID', 'จ่ายครบแล้วรอบนี้', 'ไม่มีบิลค้าง')
+    : `<div class="plates">${bills.map(b => billRow(b, today)).join('')}</div>`;
+  const cycleBills = svc.getUpcomingBills();
 
   // budgets
   const lines = [...bud.lines].sort((a, b) => b.percentUsed - a.percentUsed).slice(0, 4);
   const budHtml = lines.length === 0
-    ? `<div class="card empty"><b>ยังไม่ได้ตั้งงบ</b>แนะนำให้จดอย่างเดียวสัก 2–4 สัปดาห์ แล้วค่อยตั้งงบจากตัวเลขจริง<br><a class="btn sm" href="#plan" style="margin-top:12px">ไปที่แผน</a></div>`
+    ? emptyBox('NO BUDGET', 'ยังไม่ได้ตั้งงบ', 'แนะนำให้จดอย่างเดียวสัก 2–4 สัปดาห์ แล้วค่อยตั้งงบจากตัวเลขจริง', `<a class="btn sm" href="#plan">ไปที่แผน</a>`)
     : `<div class="card rows">${lines.map(l => budRow(l, elapsed)).join('')}</div>`;
 
   // recent
   const recent = svc.getTransactions({ limit: 6 });
   const recentHtml = recent.length === 0
-    ? `<div class="card empty"><b>ยังไม่มีรายการ</b>กดปุ่ม + สีเหลืองเพื่อจดรายการแรก<br><button class="btn primary" data-act="add" style="margin-top:14px">${ic('plus')}จดรายการ</button></div>`
+    ? emptyBox('NO ENTRIES', 'ยังไม่มีรายการ', 'กดปุ่ม + สีเหลืองเพื่อจดรายการแรก', `<button class="btn primary" data-act="add">${ic('plus')}จดรายการ</button>`)
     : `<div class="card rows">${recent.map(t => txRow(t, m)).join('')}</div>`;
 
   // goals
   const goals = svc.getGoals().slice(0, 3);
-  const goalsHtml = goals.length ? `<div class="card rows">${goals.map(g => `
-    <a class="bud" href="#plan-goals" style="text-decoration:none;color:inherit"><div class="top"><span class="n">${esc(g.name)}</span><span class="v">${baht(g.saved)} <span>/ ${baht(g.target)}</span></span></div>
-    <div class="goal" style="padding:0"><div class="gbar"><i style="width:${g.percent}%"></i></div></div></a>`).join('')}</div>` : '';
+  const goalsHtml = goals.length ? `<div class="goals">${goals.map(g => goalCard(g)).join('')}</div>` : '';
 
   const body = `
   <div class="home-grid">
@@ -279,7 +287,7 @@ function viewHome(): [string, string] {
       <div class="sec">${secH('02 BUDGET', 'งบรอบนี้', 'tag', { href: '#plan', label: 'ทั้งหมด' })}${budHtml}</div>
     </div>
     <div>
-      <div class="sec">${secH('03 BILLS', 'บิลที่ต้องจ่าย', 'calendar', { href: '#plan-bills', label: 'จัดการ' })}${billsHtml}</div>
+      <div class="sec">${secH('03 UPCOMING', 'บิลที่ต้องจ่าย', 'calendar', { href: '#plan-bills', label: 'จัดการ' }, cycleBills.length ? { text: `${s.unpaidBills.length} / ${cycleBills.length}`, sr: `ค้างจ่าย ${s.unpaidBills.length} จาก ${cycleBills.length} บิลในรอบนี้` } : undefined)}${billsHtml}</div>
       <div class="sec">${secH('04 RECENT', 'ล่าสุด', 'list', { href: '#ledger', label: 'ดูทั้งหมด' })}${recentHtml}</div>
       ${goalsHtml ? `<div class="sec">${secH('05 GOALS', 'เป้าหมาย', 'target', { href: '#plan-goals', label: 'จัดการ' })}${goalsHtml}</div>` : ''}
     </div>
@@ -318,13 +326,50 @@ function heroRunway(todayExp: number) {
   </section>`;
 }
 
+/** Set by payBill() so the next render plays the pending → paid flip on that plate once. */
+let justPaid: string | null = null;
+
+/** Bill plate (spec 4.5): light body + angled side with amount and pay button; paid = dark body + yellow side. */
 function billRow(b: { billId: string; name: string; amount: number; due: string; paid: boolean }, today: string) {
   const p = parseDate(b.due);
   const n = daysBetween(today, b.due);
-  return `<div class="row"><span class="dtag ${b.paid ? 'paid' : n < 0 ? 'late' : ''}" aria-hidden="true"><b>${String(p.d).padStart(2, '0')}</b><span>${U.MON[p.m - 1]}</span></span>
-    <span class="mid"><span class="n">${esc(b.name)}</span><span class="s">${b.paid ? 'จ่ายแล้ว' : U.relDays(n)}</span></span>
-    <span class="amt">${baht(b.amount)}</span>
-    ${b.paid ? `<span class="ic" style="border:0;background:none;color:var(--pos)" aria-label="จ่ายแล้ว">${ic('check')}</span>` : `<button class="pay-btn" data-pay="${b.billId}">จ่ายแล้ว</button>`}</div>`;
+  const dd = `${String(p.d).padStart(2, '0')}.${String(p.m).padStart(2, '0')}`;
+  const soon = !b.paid && n <= 1;
+  const amt = U.bahtParts(b.amount);
+  return `<div class="plate ${b.paid ? 'paid' : ''} ${b.paid && justPaid === b.billId ? 'flip' : ''}">
+    <div class="pl-body"><span class="pl-n">${esc(b.name)}</span>
+      <span class="pl-d"><span aria-hidden="true">${b.paid ? 'PAID' : 'DUE'} · </span>${b.paid ? 'จ่ายแล้ว' : esc(U.relDays(n))} · ${dd}</span></div>
+    <div class="pl-side">${b.paid ? '<span class="pl-wm" aria-hidden="true">PAID</span>' : ''}
+      <span class="pl-amt">${amt.int}${amt.dec ? `<small>${amt.dec}</small>` : ''}<span class="sr"> บาท</span></span>
+      ${b.paid ? `<span class="pl-ok" role="img" aria-label="จ่ายแล้ว"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6.5 5 9l5-6"/></svg></span>`
+        : `<button class="pl-pay" data-pay="${b.billId}" aria-label="บันทึกว่าจ่าย ${esc(b.name)} แล้ว">จ่าย</button>`}
+    </div>
+    ${soon ? '<i class="pl-dia" aria-hidden="true"></i><span class="sr">ใกล้ครบกำหนด</span>' : ''}
+  </div>`;
+}
+
+const GOAL_STATUS: Record<string, { en: string; th: string; cls: 'pos' | 'warn' | '' }> = {
+  done: { en: 'DONE', th: 'สำเร็จ', cls: 'pos' },
+  ahead: { en: 'AHEAD', th: 'เร็วกว่าแผน', cls: 'pos' },
+  on_track: { en: 'ON TRACK', th: 'ตามแผน', cls: 'pos' },
+  behind: { en: 'BEHIND', th: 'ช้ากว่าแผน', cls: 'warn' },
+  no_plan: { en: 'NO PLAN', th: 'ยังไม่ตั้งยอดออม', cls: '' },
+};
+/** Goal card (spec 4.6): L corner, name + saved / target, 4px bar, mono ETA from calculateGoals. `full` adds Plan's details. */
+function goalCard(g: ReturnType<typeof svc.getGoals>[number], full = false) {
+  const raw = svc.snapshot().goals.find(x => x.id === g.goalId)!;
+  const st = GOAL_STATUS[g.status]!;
+  const eta = g.status === 'done' ? 'DONE' : g.projectedDate ? `ETA · ${U.dMed(g.projectedDate)}` : 'ETA · —';
+  const inner = `<i class="gc-l" aria-hidden="true"></i>
+    <div class="gc-top"><span class="gc-n">${esc(g.name)}</span><span class="gc-v">${numCur(g.saved)}<span class="gc-t"> / ${baht(g.target)}</span></span></div>
+    <div class="gc-bar" role="img" aria-label="ออมแล้ว ${g.percent}%"><i style="width:${g.percent}%"></i></div>
+    <div class="gc-eta"><span>${eta}${raw.monthlyContribution && g.status !== 'done' ? ` ถ้าเก็บเดือนละ ${baht(raw.monthlyContribution)}` : ''}</span><span>${g.percent}% · ${st.th}</span></div>`;
+  if (!full) return `<a class="goalc" href="#plan-goals">${inner}</a>`;
+  return `<div class="goalc">${inner}
+    ${st.cls ? `<span class="schip ${st.cls} gc-chip" aria-hidden="true">${st.en}</span>` : ''}
+    ${g.neededPerMonth && g.status === 'behind' ? `<div class="gc-eta"><span class="warn">ต้องออมเดือนละ ${baht(g.neededPerMonth)} ถึงจะทัน ${U.dMed(raw.targetDate!)}</span></div>` : ''}
+    <div class="acts"><button class="btn primary sm" data-contrib="${g.goalId}" style="flex:1">${ic('plus')}ออมเพิ่ม</button><button class="btn sm" data-goal="${g.goalId}">แก้ไข</button></div>
+  </div>`;
 }
 
 function budRow(l: { categoryId: string; name: string; plan: number; spent: number; remaining: number; percentUsed: number; over: boolean }, elapsed: number) {
@@ -376,7 +421,7 @@ function renderLedgerList() {
   const txs = svc.getTransactions({ from: cyc.from, to: cyc.to, includeVoided: L.voided, type: L.type === 'all' ? undefined : L.type, text: L.q || undefined });
   const el = $('#ledger-list');
   if (!el) return;
-  if (!txs.length) { el.innerHTML = `<div class="card empty"><b>${L.q ? 'ไม่พบรายการ' : 'ยังไม่มีรายการในรอบนี้'}</b>${L.q ? 'ลองคำอื่น' : ''}</div>`; return; }
+  if (!txs.length) { el.innerHTML = L.q ? emptyBox('NO MATCH', 'ไม่พบรายการ', 'ลองคำอื่น') : emptyBox('NO ENTRIES', 'ยังไม่มีรายการในรอบนี้'); return; }
   const m = maps();
   const groups = new Map<string, Transaction[]>();
   for (const t of txs) { const g = groups.get(t.date) ?? []; g.push(t); groups.set(t.date, g); }
@@ -452,7 +497,7 @@ function viewPlan(sub = 'budget'): [string, string] {
       </div>
       ${prevIncome ? `<p class="fine" style="margin-top:8px">รายรับรอบก่อน ${baht(prevIncome)} · งบรวม + บิลประจำ = ${baht(planned + monthlyBills())} (${Math.round(((planned + monthlyBills()) / prevIncome) * 100)}% ของรายรับ)</p>` : ''}
       <div class="sec">${secH('PLANNED', 'หมวดที่ตั้งงบ', 'tag')}
-        ${bud.lines.length ? `<div class="card rows">${bud.lines.map(l => budRow(l, elapsed)).join('')}</div>` : `<div class="card empty"><b>ยังไม่มีหมวดที่ตั้งงบ</b>แตะหมวดด้านล่างเพื่อตั้งงบต่อเดือน</div>`}
+        ${bud.lines.length ? `<div class="card rows">${bud.lines.map(l => budRow(l, elapsed)).join('')}</div>` : emptyBox('NO BUDGET', 'ยังไม่มีหมวดที่ตั้งงบ', 'แตะหมวดด้านล่างเพื่อตั้งงบต่อเดือน')}
       </div>
       ${unplanned.length ? `<div class="sec">${secH('UNPLANNED', 'ยังไม่ตั้งงบ', 'plus')}<div class="card rows">${unplanned.map(c => {
         const sp = svc.getTransactions({ from: s.cycle.from, to: s.cycle.to, categoryId: c.id, type: 'expense' }).reduce((a, t) => a + t.amount, 0);
@@ -469,31 +514,18 @@ function viewPlan(sub = 'budget'): [string, string] {
         <div class="tile"><div class="l">Subscription (${subs.length})</div><div class="v">${baht(subs.reduce((a, b) => a + (b.cadence === 'yearly' ? Math.round(b.amount / 12) : b.amount), 0))}</div></div>
       </div>
       <div class="sec">${secH('THIS CYCLE', 'รอบนี้', 'calendar')}
-        ${items.length ? `<div class="card rows">${items.map(b => billRow(b, today)).join('')}</div>` : `<div class="card empty"><b>ไม่มีบิลในรอบนี้</b></div>`}</div>
+        ${items.length ? `<div class="plates">${items.map(b => billRow(b, today)).join('')}</div>` : emptyBox('NO BILLS', 'ไม่มีบิลในรอบนี้')}</div>
       <div class="sec">${secH('ALL BILLS', 'บิลทั้งหมด', 'list')}
-        <div class="card rows">${all.map(b => `<button class="row" data-bill="${b.id}" ${b.active ? '' : 'style="opacity:.55"'}>
+        ${all.length ? `<div class="card rows">${all.map(b => `<button class="row" data-bill="${b.id}" ${b.active ? '' : 'style="opacity:.55"'}>
           <span class="ic">${ic(b.isSubscription ? 'subs' : 'calendar')}</span>
           <span class="mid"><span class="n">${esc(b.name)}</span><span class="s">${b.cadence === 'monthly' ? `ทุกวันที่ ${b.dueDay}` : `ทุกปี ${b.dueDay} ${U.MON[(b.dueMonth ?? 1) - 1]}`}${b.active ? '' : ' · ปิดอยู่'}</span></span>
-          <span class="amt">${baht(b.amount)}</span></button>`).join('') || '<div class="empty">ยังไม่มีบิล</div>'}</div>
+          <span class="amt">${baht(b.amount)}</span></button>`).join('')}</div>` : emptyBox('NO BILLS', 'ยังไม่มีบิล', 'เพิ่มค่าห้อง ค่าเน็ต Subscription เพื่อให้ "ใช้ได้" แม่นขึ้น')}
         <button class="btn block" data-act="new-bill" style="margin-top:10px">${ic('plus')}เพิ่มบิลประจำ</button></div>`;
   } else {
     const gs = svc.getGoals();
-    const raw = new Map(svc.snapshot().goals.map(g => [g.id, g]));
-    const label: Record<string, [string, string]> = { done: ['สำเร็จ', 'done'], ahead: ['เร็วกว่าแผน', 'ok'], on_track: ['ตามแผน', 'ok'], behind: ['ช้ากว่าแผน', 'bad'], no_plan: ['ยังไม่ตั้งยอดออม', ''] };
     body = `${tabs}
-      <div class="sec" style="margin-top:16px"><div class="goals-grid">${gs.map(g => {
-        const r = raw.get(g.goalId)!;
-        const [lt, lc] = label[g.status]!;
-        return `<div class="card goal chamfer">
-          <div class="top"><span class="n">${esc(g.name)}</span><span class="status ${lc}">${lt}</span></div>
-          <div class="figs"><span class="num">${baht(g.saved)}</span><span class="muted">/ ${baht(g.target)} · ${g.percent}%</span></div>
-          <div class="gbar" role="img" aria-label="${g.percent}%"><i style="width:${g.percent}%"></i></div>
-          <div class="meta"><span>ออมเดือนละ ${baht(r.monthlyContribution)}</span><span>${g.projectedDate ? 'คาดว่าถึง ' + U.dMed(g.projectedDate) : ''}</span></div>
-          ${g.neededPerMonth && g.status === 'behind' ? `<div class="meta"><span class="warn">ต้องออมเดือนละ ${baht(g.neededPerMonth)} ถึงจะทัน ${U.dMed(r.targetDate!)}</span></div>` : ''}
-          <div class="acts"><button class="btn primary sm" data-contrib="${g.goalId}" style="flex:1">${ic('plus')}ออมเพิ่ม</button><button class="btn sm" data-goal="${g.goalId}">แก้ไข</button></div>
-        </div>`;
-      }).join('')}</div>
-      ${gs.length ? '' : `<div class="card empty"><b>ยังไม่มีเป้าหมาย</b>เช่น เงินสำรองฉุกเฉิน 3–6 เดือนของค่าใช้จ่าย</div>`}
+      <div class="sec" style="margin-top:16px"><div class="goals-grid">${gs.map(g => goalCard(g, true)).join('')}</div>
+      ${gs.length ? '' : emptyBox('NO GOALS', 'ยังไม่มีเป้าหมาย', 'เช่น เงินสำรองฉุกเฉิน 3–6 เดือนของค่าใช้จ่าย')}
       <button class="btn block" data-act="new-goal" style="margin-top:10px">${ic('plus')}เพิ่มเป้าหมาย</button>
       <p class="fine" style="margin-top:10px">"ออมเพิ่ม" = โอนจากบัญชีใช้จ่ายไปบัญชีเงินออม · ยอดออมรายเดือนถูกกันไว้ใน "ใช้ได้" จนกว่าจะโอนจริง</p></div>`;
   }
@@ -605,7 +637,7 @@ function viewTax(): [string, string] {
       <div class="segctl" style="flex:1;min-width:200px">${[curY - 1, curY].map(y => `<button data-taxyear="${y}" aria-pressed="${y === year}">ปีภาษี ${U.be(y)}</button>`).join('')}</div>
       <div class="segctl" style="flex:1;min-width:220px">${([['projected', 'ประมาณทั้งปี'], ['actual', 'ถึงวันนี้']] as const).map(([k, l]) => `<button data-taxbasis="${k}" aria-pressed="${st.taxBasis === k}">${l}</button>`).join('')}</div>
     </div>
-    ${taxed.length === 0 ? `<div class="notice warn">${ic('alert')}<span>ยังไม่มีหมวดรายรับที่ตั้งประเภทเงินได้ — ตั้งที่ หมวดหมู่ › รายรับ</span><a class="act" href="#more-categories">ไปตั้ง</a></div>` : ''}
+    ${taxed.length === 0 ? `<div class="notice warn">${noteChip('warn')}<span>ยังไม่มีหมวดรายรับที่ตั้งประเภทเงินได้ — ตั้งที่ หมวดหมู่ › รายรับ</span><a class="act" href="#more-categories">ไปตั้ง</a></div>` : ''}
     <section class="hero" aria-labelledby="tax-l">
       <div class="hero-top"><span class="hl" id="tax-l"><span aria-hidden="true">P.N.D. 90/91 · ${U.be(year)} · </span><span class="th">${e.remaining >= 0 ? 'ภาษีที่อาจต้องจ่ายเพิ่มตอนยื่น' : 'อาจได้เงินคืนประมาณ'}</span></span>${st.taxBasis === 'projected' ? statusChip('info', 'PROJECTION', 'ประมาณทั้งปี') : statusChip('info', 'YEAR TO DATE', 'ถึงวันนี้')}</div>
       <div class="hero-amt ${e.remaining < 0 ? 'pos' : ''}">${numCur(Math.abs(e.remaining))}</div>
@@ -630,7 +662,7 @@ function viewTax(): [string, string] {
         ${rulesBrackets().map((b, i) => `<tr class="${i === hitIdx && e.netIncome > 0 ? 'hit' : ''}"><td>${b.label}</td><td>${b.rate ? b.rate * 100 + '%' : 'ยกเว้น'}</td><td>${e.bands[i] ? baht(e.bands[i]!.tax) : '—'}</td></tr>`).join('')}
       </tbody></table></div></div>
       <div class="sec">${secH('INCOME', 'รายได้ที่นับภาษี', 'salary')}<div class="card rows">
-        ${taxed.map(c => `<div class="kv"><span class="k">${esc(c.name)} · ${c.taxSection}</span><span class="v">${baht(svc.getTransactions({ from: `${year}-01-01`, to: `${year + 1}-01-01`, categoryId: c.id, type: 'income' }).reduce((a, t) => a + t.amount, 0))}</span></div>`).join('') || '<div class="empty">—</div>'}
+        ${taxed.map(c => `<div class="kv"><span class="k">${esc(c.name)} · ${c.taxSection}</span><span class="v">${baht(svc.getTransactions({ from: `${year}-01-01`, to: `${year + 1}-01-01`, categoryId: c.id, type: 'income' }).reduce((a, t) => a + t.amount, 0))}</span></div>`).join('') || emptyBox('NO TAXABLE INCOME', 'ยังไม่มีรายได้ที่นับภาษี', 'ตั้ง "ประเภทเงินได้" ให้หมวดรายรับที่ หมวดหมู่ › รายรับ')}
       </div>
       <label class="field" style="margin-top:12px"><span>อัตราหักค่าใช้จ่าย 40(8) (%)</span><input id="rate408" inputmode="decimal" value="${Math.round(s.section408DeductionRate * 100)}"><div class="hint">ขึ้นกับประเภทธุรกิจ (เหมา 60% ใช้ได้กับหลายประเภท) — ตรวจก่อนยื่น</div></label></div></div>
     </div>
@@ -857,7 +889,9 @@ function payBill(id: string) {
   const b = svc.getBills().find(x => x.id === id)!;
   const t = guard(() => svc.payBill(id));
   if (!t) return;
+  justPaid = id;
   U.buzz(15); render();
+  justPaid = null;
   U.toast(`จ่าย ${b.name} ${baht(b.amount)}`, { undo: () => { svc.voidTransaction(t.id, 'undo'); render(); } });
 }
 
