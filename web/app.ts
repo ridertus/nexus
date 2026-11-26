@@ -1134,9 +1134,10 @@ function onboarding(step = 0, draft: { bal: Record<string, string>; cycle: numbe
 }
 
 // ------------------------------------------------------------------ DAILY BOOT LOG (spec 6)
-/** First open of the Bangkok day, after onboarding; never in demo, when switched off, or under reduced motion. */
+/** First open (or resume) of the Bangkok day, after onboarding; never in demo, when switched off, or under reduced motion.
+ *  (prefs.onboarded, not the load-time firstRun flag, so a session that onboarded and stays open overnight still gets it.) */
 function shouldBoot() {
-  if (firstRun || !prefs.onboarded || prefs.demo || prefs.bootLog === false) return false;
+  if (!prefs.onboarded || $('#onb') || prefs.demo || prefs.bootLog === false) return false;
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
   return prefs.lastBoot !== svc.today();
 }
@@ -1150,7 +1151,8 @@ function bootLines(): string {
     line(`<span aria-hidden="true">&gt; </span>${esc(label)} <span aria-hidden="true">${'.'.repeat(Math.max(3, 20 - label.length))}</span> <span class="${cls}">${value}</span>`);
   const out: string[] = [];
   out.push(line(`<span aria-hidden="true">&gt; </span>BOOT SEQUENCE  <span class="b-dim">${today.replace(/-/g, '.')} ${bkkTime()}</span>`));
-  out.push(row('SYNC LEDGER', 'OK', 'b-pos'));
+  const entries = svc.snapshot().transactions.length;
+  if (entries) out.push(row('LEDGER', `${entries.toLocaleString('en-US')} ENTRIES`, 'b-info'));
 
   const accs = svc.getAccounts();
   const bal = accs.reduce((a, x) => a + x.balance, 0);
@@ -1230,7 +1232,10 @@ function showBootLog() {
     el.classList.add('out');
     setTimeout(() => { el.remove(); document.body.style.overflow = ''; ($('.mh h1') as HTMLElement | null)?.focus(); }, 300);
   };
-  const onKey = (e: KeyboardEvent) => { if (!['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) close(e); };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') close(e);
+    else e.stopPropagation(); // e.g. N must not open quick add behind the overlay; Tab still moves focus
+  };
   el.addEventListener('click', close);
   window.addEventListener('keydown', onKey, true);
   ($('.boot-enter', el) as HTMLElement).focus();
@@ -1311,7 +1316,12 @@ document.addEventListener('keydown', e => {
 
 window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
 window.addEventListener('storage', e => { if (e.key === 'nexus.rev' && !U.sheetOpen()) render(); });
-document.addEventListener('visibilitychange', () => { if (!document.hidden && !U.sheetOpen()) render(); }); // new day / other tab
+document.addEventListener('visibilitychange', () => { // new day / other tab
+  if (document.hidden || U.sheetOpen()) return;
+  render();
+  // installed PWAs often resume instead of reloading on a new day: show the day's boot log here too
+  if (shouldBoot() && !U.sheetOpen() && !$('#boot')) showBootLog();
+});
 window.addEventListener('beforeinstallprompt', (e: any) => { e.preventDefault(); installEvt = e; if (route().page === 'home') render(); });
 
 // ------------------------------------------------------------------ start
