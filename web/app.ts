@@ -10,7 +10,7 @@ import { loadDemo } from './demo.js';
 import * as U from './ui.js';
 
 const { $, $$, esc, ic, baht } = U;
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '3.0.0';
 
 // ------------------------------------------------------------------ boot
 const storage = safeStorage();
@@ -56,10 +56,30 @@ function tryDo(fn: () => unknown): boolean {
 function guard<T>(fn: () => T): T | undefined {
   try { return fn(); } catch (e) { U.toast((e as Error).message, { error: true }); U.buzz(40); return undefined; }
 }
-const secH = (code: string, title: string, icon: string, link?: { href: string; label: string }) => `
-  <div class="sec-h"><div class="ix" aria-hidden="true">${ic(icon)}</div>
-    <div class="tt"><span class="micro" aria-hidden="true">// ${esc(code)}</span><h2>${esc(title)}</h2></div>
+/** Section header (spec 3): Thai h2 + tracked EN label, optional counter chip and link. `code` keeps v2's
+ *  "02 BUDGET" style ids; only the words are shown. `icon` is kept for call-site compatibility. */
+const secH = (code: string, title: string, _icon: string, link?: { href: string; label: string }, counter?: { text: string; sr: string }) => `
+  <div class="sec-h"><div class="tt"><h2>${esc(title)}</h2><span class="sec-en" aria-hidden="true">${esc(code.replace(/^\d+\s+/, ''))}</span></div>
+    ${counter ? `<span class="chip-y"><span aria-hidden="true">${esc(counter.text)}</span><span class="sr">${esc(counter.sr)}</span></span>` : ''}
     ${link ? `<a class="link" href="${link.href}">${esc(link.label)}${ic('chevron')}</a>` : ''}</div>`;
+
+/** Empty state (spec 4.9, Decision 7): hatched box, EN heading (decorative), Thai title + description. */
+const emptyBox = (en: string, title: string, desc = '', action = '') =>
+  `<div class="empty"><span class="empty-en" aria-hidden="true">${en}</span><b>${title}</b>${desc ? `<span>${desc}</span>` : ''}${action}</div>`;
+
+/** Chip on warn / neg notices (spec 4.10); the Thai sentence beside it carries the meaning. */
+const noteChip = (kind: 'warn' | 'neg') => `<span class="schip ${kind}" aria-hidden="true">${kind === 'neg' ? 'ALERT' : 'WARN'}</span>`;
+
+/** Numeral with the unit after it (spec 4.3): <n>int<dec>.xx</dec></n><cur>฿</cur> */
+function numCur(satang: number, unit = '฿') {
+  const p = U.bahtParts(satang);
+  return `<span class="n">${p.neg ? '−' : ''}${p.int}${p.dec ? `<span class="dec">${p.dec}</span>` : ''}</span><span class="cur">${unit}</span>`;
+}
+/** Status chip: the English word is visual, the Thai meaning is read out (spec 7: never colour alone). */
+/** Decision 12: nothing recorded yet — no transactions and every account balance is zero. */
+const isNoData = () => svc.snapshot().transactions.length === 0 && svc.getAccounts().every(a => a.balance === 0);
+const statusChip = (cls: 'pos' | 'warn' | 'neg' | 'info' | 'none', en: string, th: string) =>
+  `<span class="schip ${cls}"><span aria-hidden="true">${en}</span><span class="sr">${esc(th)}</span></span>`;
 
 function txRow(t: Transaction, m = maps()) {
   const c = t.categoryId ? m.cats.get(t.categoryId) : undefined;
@@ -130,27 +150,45 @@ function render() {
   const views: Record<string, () => [string, string]> = {
     home: viewHome, ledger: viewLedger, plan: () => viewPlan(r.sub), more: () => viewMore(r.sub),
   };
-  const [top, body] = (views[r.page] ?? viewHome)();
-  $('#topbar')!.innerHTML = top;
-  $('#view')!.innerHTML = body;
+  const [head, body] = (views[r.page] ?? viewHome)();
+  $('#topbar')!.innerHTML = systemStrip();
+  $('#view')!.innerHTML = head + body;
+  // Motion (spec 5): stagger in only when the route changes — never on same-page re-renders
+  // (saving an entry, visibilitychange, storage sync, ledger cycle paging).
+  const key = `${r.page}/${r.sub ?? ''}`;
+  if (key !== lastRouteKey) { staggerIn($('#view')!); lastRouteKey = key; }
   afterRender(r);
 }
-
-const topMain = (title: string) => {
-  const cyc = svc.getSafeToSpend();
-  if (svc.getSettings().incomeMode === 'none') {
-    const rw = svc.getRunway();
-    return `<div class="wordmark" aria-label="NEXUS"><b>NEXUS</b><span>PERSONAL FINANCE OS</span></div>
-    <div class="title sr">${esc(title)}</div><div class="spacer"></div>
-    <div class="cycle-pill"><span class="d">${rw.days === null ? '—' : rw.days > 999 ? '999+' : rw.days}</span>วันที่เงินพอใช้</div>`;
+let lastRouteKey = '';
+/** Give each top-level block `.st` and `--i` (capped at 14). Layout wrappers (.home-grid, .two) are looked through. */
+function staggerIn(view: HTMLElement) {
+  const items: HTMLElement[] = [];
+  for (const el of Array.from(view.children) as HTMLElement[]) {
+    if (el.matches('.home-grid, .two')) for (const col of Array.from(el.children)) items.push(...(Array.from(col.children) as HTMLElement[]));
+    else items.push(el);
   }
-  return `<div class="wordmark" aria-label="NEXUS"><b>NEXUS</b><span>PERSONAL FINANCE OS</span></div>
-    <div class="title sr">${esc(title)}</div><div class="spacer"></div>
-    <div class="cycle-pill" title="รอบ ${esc(cycleLabel(cyc.cycle))}"><span class="d">${String(cyc.daysLeft).padStart(2, '0')}</span>วันที่เหลือในรอบ</div>`;
-};
-const topSub = (title: string, back: string) =>
-  `<a class="icon-btn" href="${back}" aria-label="กลับ">${ic('back')}</a><div class="title">${esc(title)}</div><div class="spacer"></div>`;
-const topTitle = (title: string, right = '') => `<div class="title" style="font-size:20px">${esc(title)}</div><div class="spacer"></div>${right}`;
+  items.forEach((el, i) => { el.classList.add('st'); el.style.setProperty('--i', String(Math.min(i, 14))); });
+}
+
+// System strip (spec 4.1): tri-colour mark + NEXUS // FINANCE OS · date and time in Bangkok, Gregorian year.
+const bkkTime = () => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());
+const stripStamp = () => `${svc.today().replace(/-/g, '.')} · ${bkkTime()}`;
+const systemStrip = () => `<div class="sys-l"><i class="tri-v" aria-hidden="true"></i><span class="sys">NEXUS // FINANCE OS</span></div>
+  <span class="sys" id="sys-clock">${stripStamp()}</span>`;
+setInterval(() => { const c = $('#sys-clock'); if (c) c.textContent = stripStamp(); }, 20000);
+
+const MON_EN = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+/**
+ * Module header (spec 4.2, Decision 8): breadcrumb + hatch tail, Thai <h1> + EN subtitle,
+ * yellow lead → ticked rule → optional counter chip. Sub-pages get a back link before the breadcrumb.
+ */
+function moduleHeader(o: { crumb: string; th: string; en: string; counter?: string; back?: string }) {
+  return `<header class="mh">
+    <div class="mh-crumb">${o.back ? `<a class="icon-btn mh-back" href="${o.back}" aria-label="กลับ">${ic('back')}</a>` : ''}<span aria-hidden="true">// NEXUS / ${esc(o.crumb)}</span><i class="mh-hatch" aria-hidden="true"></i></div>
+    <div class="mh-title"><h1 tabindex="-1">${esc(o.th)}</h1><span class="mh-en" aria-hidden="true">${esc(o.en)}</span></div>
+    <div class="mh-rule" aria-hidden="true"><i class="lead"></i><i class="tk"></i>${o.counter ? `<span class="chip-y">${esc(o.counter)}</span>` : ''}</div>
+  </header>`;
+}
 
 // ------------------------------------------------------------------ HOME
 function viewHome(): [string, string] {
@@ -167,88 +205,112 @@ function viewHome(): [string, string] {
   const w = (v: number) => `${Math.max(0, (v / base) * 100).toFixed(2)}%`;
   const elapsed = (daysBetween(s.cycle.from, today) + 1) / daysBetween(s.cycle.from, s.cycle.to);
 
+  // NEAR LIMIT (Decision 2): total budget used faster than the cycle has elapsed (+10%), or today over its share.
+  const bud = svc.getBudgets();
+  const plannedAll = bud.lines.reduce((a, l) => a + l.plan, 0), spentAll = bud.lines.reduce((a, l) => a + l.spent, 0);
+  const budgetFast = plannedAll > 0 && (spentAll / plannedAll) * 100 > elapsed * 100 + 10;
+  const near = !bad && (budgetFast || leftToday < 0);
+  const noData = isNoData();
+  const chip = noData ? statusChip('none', 'NO DATA', 'สถานะ: ยังไม่มีข้อมูล')
+    : bad ? statusChip('neg', 'SHORTFALL', 'สถานะ: เงินไม่พอ')
+    : near ? statusChip('warn', 'NEAR LIMIT', 'สถานะ: ใกล้เกินงบ')
+    : statusChip('pos', 'ON TRACK', 'สถานะ: ตามแผน');
+  const todayPct = dayBudget ? Math.min(100, (todayExp / dayBudget) * 100) : todayExp ? 100 : 0;
+
   const hero = svc.getSettings().incomeMode === 'none' ? heroRunway(todayExp) : `
-  <section class="hero chamfer ${bad ? 'bad' : ''}" aria-labelledby="sts-l">
-    <div class="vband" aria-hidden="true"><b>SAFE TO SPEND</b></div>
-    <div>
-      <div class="hero-band ${bad ? 'bad' : ''}"><b aria-hidden="true">${bad ? 'SHORTFALL' : 'SAFE TO SPEND'}</b><span class="micro">รอบ ${esc(cycleLabel(s.cycle))}</span></div>
-      <div class="hero-body">
-        <div class="hero-label" id="sts-l">${bad ? 'เงินไม่พอสำหรับสิ่งที่กันไว้' : 'ใช้ได้อีกในรอบนี้'}</div>
-        <div class="hero-amt" aria-live="polite">${bad ? `<span class="neg">−<span class="cur">฿</span>${U.bahtParts(s.shortfall).int}</span>` : `<span class="cur">฿</span>${p.int}<span class="dec">${p.dec}</span>`}</div>
-        <div class="hero-sub">${bad ? `ขาดอยู่ <b class="neg">${baht(s.shortfall)}</b> — ลองเลื่อนการออมหรือลดค่าใช้จ่าย` : `เฉลี่ย <b>${baht(s.perDay)}</b>/วัน · อีก <b>${s.daysLeft}</b> วัน`}</div>
-        <div class="cap-bar" role="img" aria-label="เงินที่มี ${baht(s.available)} แบ่งเป็นใช้ได้ ${baht(s.safeToSpend)} บิล ${baht(s.reserved.bills)} ออม ${baht(s.reserved.goals)} ภาษี ${baht(s.reserved.tax)}">
-          ${s.safeToSpend ? `<i class="free" style="width:${w(s.safeToSpend)}"></i>` : ''}
-          ${s.reserved.bills ? `<i class="lock" style="width:${w(s.reserved.bills)}"></i>` : ''}
-          ${s.reserved.goals ? `<i class="lock goals" style="width:${w(s.reserved.goals)}"></i>` : ''}
-          ${s.reserved.tax ? `<i class="lock tax" style="width:${w(s.reserved.tax)}"></i>` : ''}
-        </div>
-        <div class="cap-legend">
-          <div><i class="sw free"></i>ใช้ได้<b>${baht(s.safeToSpend)}</b></div>
-          <div><i class="sw bills"></i>บิลรอจ่าย<b>${baht(s.reserved.bills)}</b></div>
-          <div><i class="sw goals"></i>กันไว้ออม<b>${baht(s.reserved.goals)}</b></div>
-          <div><i class="sw tax"></i>กันไว้ภาษี<b>${baht(s.reserved.tax)}</b></div>
-        </div>
+  <section class="hero ${bad ? 'bad' : near ? 'near' : ''}" aria-labelledby="sts-l">
+    <div class="hero-top"><span class="hl" id="sts-l"><span aria-hidden="true">SAFE TO SPEND · </span><span class="th">${bad ? 'เงินไม่พอสำหรับสิ่งที่กันไว้' : 'ใช้ได้อีกในรอบนี้'}</span></span>${chip}</div>
+    <div class="hero-amt ${bad ? 'neg' : ''}" aria-live="polite">${bad ? numCur(-s.shortfall) : numCur(s.safeToSpend)}</div>
+    <div class="hero-sub">${bad ? `ขาดอยู่ <b class="neg">${baht(s.shortfall)}</b> — ลองเลื่อนการออมหรือลดค่าใช้จ่าย` : `เฉลี่ย <b>${baht(s.perDay)}</b>/วัน · อีก <b>${s.daysLeft}</b> วัน`} · รอบ ${esc(cycleLabel(s.cycle))}${budgetFast && !bad ? ' · <span class="warn">งบรวมใช้เร็วกว่าแผน</span>' : ''}</div>
+    ${noData ? '' : `<div class="cap">
+      <div class="cap-bar" role="img" aria-label="เงินที่มี ${baht(s.available)} แบ่งเป็นใช้ได้ ${baht(s.safeToSpend)} บิล ${baht(s.reserved.bills)} ออม ${baht(s.reserved.goals)} ภาษี ${baht(s.reserved.tax)}">
+        ${s.safeToSpend ? `<i class="free" style="width:${w(s.safeToSpend)}"></i>` : ''}
+        ${s.reserved.bills ? `<i class="lock l1" style="width:${w(s.reserved.bills)}"></i>` : ''}
+        ${s.reserved.goals ? `<i class="lock l2" style="width:${w(s.reserved.goals)}"></i>` : ''}
+        ${s.reserved.tax ? `<i class="lock l3" style="width:${w(s.reserved.tax)}"></i>` : ''}
       </div>
-      <div class="today">
-        <div><div class="lab">วันนี้ใช้ได้อีก</div><div class="val ${leftToday < 0 ? 'over' : ''}">${leftToday < 0 ? '−' + baht(-leftToday) : baht(leftToday)}</div></div>
-        <div class="meter" aria-hidden="true"><div class="bar"><i class="${leftToday < 0 ? 'over' : ''}" style="width:${dayBudget ? Math.min(100, (todayExp / dayBudget) * 100) : todayExp ? 100 : 0}%"></i></div>
-          <div class="t"><span>ใช้ ${baht(todayExp)}</span><span>/ ${baht(dayBudget)}</span></div></div>
+      <div class="cap-legend">
+        <span><i class="sw free" aria-hidden="true"></i>ใช้ได้ ${baht(s.safeToSpend)}</span>
+        <span><i class="sw l1" aria-hidden="true"></i>บิล ${baht(s.reserved.bills)}</span>
+        <span><i class="sw l2" aria-hidden="true"></i>ออม ${baht(s.reserved.goals)}</span>
+        <span><i class="sw l3" aria-hidden="true"></i>ภาษี ${baht(s.reserved.tax)}</span>
       </div>
+    </div>`}
+    <div class="today">
+      <div class="t-top"><span class="hl"><span aria-hidden="true">TODAY · </span><span class="th">${leftToday < 0 ? 'ใช้เกินวันนี้' : 'วันนี้เหลือ'}</span></span><span class="t-val ${leftToday < 0 ? 'over' : ''}">${numCur(leftToday)}</span></div>
+      <div class="t-bar" aria-hidden="true"><i class="${leftToday < 0 ? 'over' : ''}" style="width:${todayPct}%"></i></div>
+      <div class="t-foot"><span>ใช้ ${baht(todayExp)}</span><span>/ ${baht(dayBudget)}</span></div>
     </div>
+  </section>`;
+
+  // stat tiles (spec 4.4, Decision 5): engine numbers only
+  const accsAll = svc.getAccounts();
+  const balTotal = accsAll.reduce((a, x) => a + x.balance, 0);
+  const balSpend = accsAll.filter(a => a.spendable).reduce((a, x) => a + x.balance, 0);
+  const cf = svc.getCashFlow(2);
+  const cfPrev = cf[0]!, cfNow = cf[1]!;
+  const dNet = cfNow.net - cfPrev.net;
+  const stats = `
+  <section class="stats" aria-label="สรุปยอดเงิน">
+    <div class="stat"><span class="ml"><span aria-hidden="true">TOTAL BALANCE</span><span class="th">ยอดรวม</span></span>
+      <span class="sv ${balTotal < 0 ? 'neg' : ''}">${numCur(balTotal)}</span>
+      <span class="sl">ใช้จ่ายได้ ${baht(balSpend)}<br>ออม ${baht(balTotal - balSpend)}</span></div>
+    <div class="stat"><span class="ml"><span aria-hidden="true">NET</span><span class="th">สุทธิเดือนนี้</span></span>
+      <span class="sv ${cfNow.net < 0 ? 'neg' : ''}">${numCur(cfNow.net)}</span>
+      <span class="sl ${dNet > 0 ? 'pos' : dNet < 0 ? 'neg' : ''}">${dNet ? `<span aria-hidden="true">${dNet > 0 ? '▲' : '▼'} </span><span class="sr">${dNet > 0 ? 'เพิ่มขึ้น' : 'ลดลง'} </span>${baht(Math.abs(dNet))} จากเดือนก่อน` : 'เท่ากับเดือนก่อน'}</span></div>
   </section>`;
 
   // notices
   const notes: string[] = [];
   const overdue = s.unpaidBills.filter(b => b.due < today);
-  for (const b of overdue.slice(0, 2)) notes.push(`<div class="notice neg">${ic('alert')}<span><b>${esc(b.name)}</b> เลยกำหนด ${-daysBetween(today, b.due)} วัน · ${baht(b.amount)}</span><button class="act" data-pay="${b.billId}">จ่ายแล้ว</button></div>`);
+  for (const b of overdue.slice(0, 2)) notes.push(`<div class="notice neg">${noteChip('neg')}<span><b>${esc(b.name)}</b> เลยกำหนด ${-daysBetween(today, b.due)} วัน · ${baht(b.amount)}</span><button class="act" data-pay="${b.billId}">จ่ายแล้ว</button></div>`);
   const txCount = svc.snapshot().transactions.length;
   const lastB = prefs.lastBackup;
   if (!prefs.demo && txCount >= 15 && (!lastB || daysBetween(lastB, today) > 14)) {
-    notes.push(`<div class="notice warn">${ic('backup')}<span>${lastB ? `สำรองข้อมูลล่าสุด ${daysBetween(lastB, today)} วันก่อน` : 'ยังไม่เคยสำรองข้อมูล'} — ข้อมูลอยู่ในเครื่องนี้เท่านั้น</span><a class="act" href="#more-backup">สำรอง</a></div>`);
+    notes.push(`<div class="notice warn">${noteChip('warn')}<span>${lastB ? `สำรองข้อมูลล่าสุด ${daysBetween(lastB, today)} วันก่อน` : 'ยังไม่เคยสำรองข้อมูล'} — ข้อมูลอยู่ในเครื่องนี้เท่านั้น</span><a class="act" href="#more-backup">สำรอง</a></div>`);
   }
   if (installEvt && !prefs.dismissInstall) notes.push(`<div class="notice">${ic('phone')}<span>ติดตั้ง NEXUS เป็นแอป เปิดได้จากหน้าจอหลัก ใช้ได้แม้ออฟไลน์</span><button class="act" data-act="install">ติดตั้ง</button></div>`);
 
-  if (!storage.persistent) notes.unshift(`<div class="notice neg">${ic('alert')}<span>เบราว์เซอร์นี้ไม่อนุญาตให้เก็บข้อมูล — ข้อมูลจะหายเมื่อปิดหน้านี้</span></div>`);
+  if (!storage.persistent) notes.unshift(`<div class="notice neg">${noteChip('neg')}<span>เบราว์เซอร์นี้ไม่อนุญาตให้เก็บข้อมูล — ข้อมูลจะหายเมื่อปิดหน้านี้</span></div>`);
   // bills
-  const bills = s.unpaidBills.slice(0, 4);
+  const cycleBills = svc.getUpcomingBills();
+  const bills = billOrder(cycleBills).slice(0, 4);
   const billsHtml = svc.getBills().filter(b => b.active).length === 0
-    ? `<div class="card empty"><b>ยังไม่มีบิลประจำ</b>เพิ่มค่าห้อง ค่าเน็ต Subscription เพื่อให้ "ใช้ได้" แม่นขึ้น<br><a class="btn sm" href="#plan-bills" style="margin-top:12px">เพิ่มบิล</a></div>`
-    : bills.length === 0 ? `<div class="card empty"><b>จ่ายครบแล้วรอบนี้</b>ไม่มีบิลค้าง</div>`
-    : `<div class="card rows">${bills.map(b => billRow(b, today)).join('')}</div>`;
+    ? emptyBox('NO BILLS', 'ยังไม่มีบิลประจำ', 'เพิ่มค่าห้อง ค่าเน็ต Subscription เพื่อให้ "ใช้ได้" แม่นขึ้น', `<a class="btn sm" href="#plan-bills">เพิ่มบิล</a>`)
+    : bills.length === 0 ? emptyBox('NO BILLS DUE', 'ไม่มีบิลในรอบนี้')
+    : `<div class="plates">${bills.map(b => billRow(b, today)).join('')}</div>`;
 
   // budgets
-  const bud = svc.getBudgets();
   const lines = [...bud.lines].sort((a, b) => b.percentUsed - a.percentUsed).slice(0, 4);
   const budHtml = lines.length === 0
-    ? `<div class="card empty"><b>ยังไม่ได้ตั้งงบ</b>แนะนำให้จดอย่างเดียวสัก 2–4 สัปดาห์ แล้วค่อยตั้งงบจากตัวเลขจริง<br><a class="btn sm" href="#plan" style="margin-top:12px">ไปที่แผน</a></div>`
+    ? emptyBox('NO BUDGET', 'ยังไม่ได้ตั้งงบ', 'แนะนำให้จดอย่างเดียวสัก 2–4 สัปดาห์ แล้วค่อยตั้งงบจากตัวเลขจริง', `<a class="btn sm" href="#plan">ไปที่แผน</a>`)
     : `<div class="card rows">${lines.map(l => budRow(l, elapsed)).join('')}</div>`;
 
   // recent
   const recent = svc.getTransactions({ limit: 6 });
   const recentHtml = recent.length === 0
-    ? `<div class="card empty"><b>ยังไม่มีรายการ</b>กดปุ่ม + สีเหลืองเพื่อจดรายการแรก<br><button class="btn primary" data-act="add" style="margin-top:14px">${ic('plus')}จดรายการ</button></div>`
+    ? emptyBox('NO ENTRIES', 'ยังไม่มีรายการ', 'กดปุ่ม + สีเหลืองเพื่อจดรายการแรก', `<button class="btn primary" data-act="add">${ic('plus')}จดรายการ</button>`)
     : `<div class="card rows">${recent.map(t => txRow(t, m)).join('')}</div>`;
 
   // goals
   const goals = svc.getGoals().slice(0, 3);
-  const goalsHtml = goals.length ? `<div class="card rows">${goals.map(g => `
-    <a class="bud" href="#plan-goals" style="text-decoration:none;color:inherit"><div class="top"><span class="n">${esc(g.name)}</span><span class="v">${baht(g.saved)} <span>/ ${baht(g.target)}</span></span></div>
-    <div class="goal" style="padding:0"><div class="gbar"><i style="width:${g.percent}%"></i></div></div></a>`).join('')}</div>` : '';
+  const goalsHtml = goals.length ? `<div class="goals">${goals.map(g => goalCard(g)).join('')}</div>` : '';
 
   const body = `
   <div class="home-grid">
     <div>
       ${hero}
+      ${stats}
       ${notes.join('')}
       <div class="sec">${secH('02 BUDGET', 'งบรอบนี้', 'tag', { href: '#plan', label: 'ทั้งหมด' })}${budHtml}</div>
     </div>
     <div>
-      <div class="sec">${secH('03 BILLS', 'บิลที่ต้องจ่าย', 'calendar', { href: '#plan-bills', label: 'จัดการ' })}${billsHtml}</div>
+      <div class="sec">${secH('03 UPCOMING', 'บิลที่ต้องจ่าย', 'calendar', { href: '#plan-bills', label: 'จัดการ' }, cycleBills.length ? { text: `${s.unpaidBills.length} / ${cycleBills.length}`, sr: `ค้างจ่าย ${s.unpaidBills.length} จาก ${cycleBills.length} บิลในรอบนี้` } : undefined)}${billsHtml}</div>
       <div class="sec">${secH('04 RECENT', 'ล่าสุด', 'list', { href: '#ledger', label: 'ดูทั้งหมด' })}${recentHtml}</div>
       ${goalsHtml ? `<div class="sec">${secH('05 GOALS', 'เป้าหมาย', 'target', { href: '#plan-goals', label: 'จัดการ' })}${goalsHtml}</div>` : ''}
     </div>
   </div>`;
-  return [topMain('หน้าหลัก'), body];
+  return [moduleHeader({ crumb: 'HOME', th: 'ภาพรวม', en: 'OVERVIEW', counter: MON_EN[Number(today.slice(5, 7)) - 1] }), body];
 }
 
 function heroRunway(todayExp: number) {
@@ -257,40 +319,80 @@ function heroRunway(todayExp: number) {
   const dayLabel = r.days === null ? '—' : r.days > 999 ? '999+' : String(r.days);
   const avg = r.flexiblePerDay;
   const meter = avg ? Math.min(100, (todayExp / avg) * 100) : todayExp ? 100 : 0;
+  const over = !!avg && todayExp > avg;
+  const chip = r.days === null ? (isNoData() ? statusChip('none', 'NO DATA', 'สถานะ: ยังไม่มีข้อมูล') : '')
+    : short ? statusChip('warn', 'SHORT RUNWAY', 'สถานะ: เงินพอใช้น้อยกว่า 30 วัน')
+    : statusChip('pos', 'ON TRACK', 'สถานะ: เงินพอใช้เกิน 30 วัน');
   return `
-  <section class="hero chamfer ${short ? 'bad' : ''}" aria-labelledby="rw-l">
-    <div class="vband" aria-hidden="true"><b>RUNWAY</b></div>
-    <div>
-      <div class="hero-band ${short ? 'bad' : ''}"><b aria-hidden="true">RUNWAY</b><span class="micro">เฉลี่ยจาก ${r.daysObserved} วันล่าสุด</span></div>
-      <div class="hero-body">
-        <div class="hero-label" id="rw-l">เงินใช้จ่ายที่มี พอใช้อีกประมาณ</div>
-        <div class="hero-amt" aria-live="polite">${dayLabel}<span class="cur" style="margin-left:8px">วัน</span></div>
-        <div class="hero-sub">${r.days === null ? 'จดรายจ่ายสักพัก แล้วระบบจะคำนวณให้' : `ถึงประมาณ <b>${U.dMed(r.runOutDate!)}</b> · ใช้เฉลี่ย <b>${baht(r.burnPerDay)}</b>/วัน`}</div>
-        ${r.lowData && r.days !== null ? `<div class="notice" style="margin-top:12px">${ic('alert')}<span>ข้อมูลยังน้อย (${r.daysObserved} วัน) ตัวเลขจะนิ่งขึ้นเมื่อจดครบ 2 สัปดาห์</span></div>` : ''}
-        <div class="card rows" style="margin-top:14px">
-          <div class="kv"><span class="k">เงินใช้จ่ายตอนนี้</span><span class="v">${baht(r.spendable)}</span></div>
-          <div class="kv"><span class="k">ใช้ทั่วไปเฉลี่ย / วัน</span><span class="v">${baht(r.flexiblePerDay)}</span></div>
-          <div class="kv"><span class="k">บิลประจำ / วัน</span><span class="v">${baht(r.billsPerDay)}</span></div>
-          ${r.withSavings !== r.spendable ? `<div class="kv"><span class="k">ถ้ารวมเงินออม (${baht(r.withSavings)})</span><span class="v">${r.daysWithSavings === null ? '—' : r.daysWithSavings + ' วัน'}</span></div>` : ''}
-          ${r.incomeInWindow ? `<div class="kv"><span class="k">ได้รับเข้ามาใน ${r.daysObserved} วัน</span><span class="v pos">${baht(r.incomeInWindow, { sign: true })}</span></div>` : ''}
-        </div>
-      </div>
-      <div class="today">
-        <div><div class="lab">วันนี้ใช้ไป</div><div class="val ${avg && todayExp > avg ? 'over' : ''}">${baht(todayExp)}</div></div>
-        <div class="meter" aria-hidden="true"><div class="bar"><i class="${avg && todayExp > avg ? 'over' : ''}" style="width:${meter}%"></i></div>
-          <div class="t"><span>เทียบค่าเฉลี่ย</span><span>${baht(avg)}/วัน</span></div></div>
-      </div>
+  <section class="hero ${short ? 'near' : ''}" aria-labelledby="rw-l">
+    <div class="hero-top"><span class="hl" id="rw-l"><span aria-hidden="true">RUNWAY · </span><span class="th">เงินใช้จ่ายที่มี พอใช้อีกประมาณ</span></span>${chip}</div>
+    <div class="hero-amt" aria-live="polite"><span class="n">${dayLabel}</span><span class="cur unit">วัน</span></div>
+    <div class="hero-sub">${r.days === null ? 'จดรายจ่ายสักพัก แล้วระบบจะคำนวณให้' : `ถึงประมาณ <b>${U.dMed(r.runOutDate!)}</b> · ใช้เฉลี่ย <b>${baht(r.burnPerDay)}</b>/วัน`} · เฉลี่ยจาก ${r.daysObserved} วันล่าสุด</div>
+    ${r.lowData && r.days !== null ? `<div class="notice">${ic('alert')}<span>ข้อมูลยังน้อย (${r.daysObserved} วัน) ตัวเลขจะนิ่งขึ้นเมื่อจดครบ 2 สัปดาห์</span></div>` : ''}
+    <div class="rows hero-kv">
+      <div class="kv"><span class="k">เงินใช้จ่ายตอนนี้</span><span class="v">${baht(r.spendable)}</span></div>
+      <div class="kv"><span class="k">ใช้ทั่วไปเฉลี่ย / วัน</span><span class="v">${baht(r.flexiblePerDay)}</span></div>
+      <div class="kv"><span class="k">บิลประจำ / วัน</span><span class="v">${baht(r.billsPerDay)}</span></div>
+      ${r.withSavings !== r.spendable ? `<div class="kv"><span class="k">ถ้ารวมเงินออม (${baht(r.withSavings)})</span><span class="v">${r.daysWithSavings === null ? '—' : r.daysWithSavings + ' วัน'}</span></div>` : ''}
+      ${r.incomeInWindow ? `<div class="kv"><span class="k">ได้รับเข้ามาใน ${r.daysObserved} วัน</span><span class="v pos">${baht(r.incomeInWindow, { sign: true })}</span></div>` : ''}
+    </div>
+    <div class="today">
+      <div class="t-top"><span class="hl"><span aria-hidden="true">TODAY · </span><span class="th">วันนี้ใช้ไป</span></span><span class="t-val ${over ? 'over' : ''}">${numCur(todayExp)}</span></div>
+      <div class="t-bar" aria-hidden="true"><i class="${over ? 'over' : ''}" style="width:${meter}%"></i></div>
+      <div class="t-foot"><span>เทียบค่าเฉลี่ย</span><span>${baht(avg)}/วัน</span></div>
     </div>
   </section>`;
 }
 
+/** Decision 10: unpaid bills first by due date, then paid ones (by due date). */
+const billOrder = <T extends { paid: boolean; due: string }>(xs: T[]) =>
+  [...xs].sort((a, b) => Number(a.paid) - Number(b.paid) || a.due.localeCompare(b.due));
+
+/** Set by payBill() so the next render plays the pending → paid flip on that plate once. */
+let justPaid: string | null = null;
+
+/** Bill plate (spec 4.5): light body + angled side with amount and pay button.
+ *  Paid (Decision 10): dark body, calm grey side with yellow check and PAID mark; flips through yellow once after paying. */
 function billRow(b: { billId: string; name: string; amount: number; due: string; paid: boolean }, today: string) {
   const p = parseDate(b.due);
   const n = daysBetween(today, b.due);
-  return `<div class="row"><span class="dtag ${b.paid ? 'paid' : n < 0 ? 'late' : ''}" aria-hidden="true"><b>${String(p.d).padStart(2, '0')}</b><span>${U.MON[p.m - 1]}</span></span>
-    <span class="mid"><span class="n">${esc(b.name)}</span><span class="s">${b.paid ? 'จ่ายแล้ว' : U.relDays(n)}</span></span>
-    <span class="amt">${baht(b.amount)}</span>
-    ${b.paid ? `<span class="ic" style="border:0;background:none;color:var(--pos)" aria-label="จ่ายแล้ว">${ic('check')}</span>` : `<button class="pay-btn" data-pay="${b.billId}">จ่ายแล้ว</button>`}</div>`;
+  const dd = `${String(p.d).padStart(2, '0')}.${String(p.m).padStart(2, '0')}`;
+  const soon = !b.paid && n <= 1;
+  const amt = U.bahtParts(b.amount);
+  return `<div class="plate ${b.paid ? 'paid' : ''} ${b.paid && justPaid === b.billId ? 'flip' : ''}">
+    <div class="pl-body"><span class="pl-n">${esc(b.name)}</span>
+      <span class="pl-d"><span aria-hidden="true">${b.paid ? 'PAID' : 'DUE'} · </span>${b.paid ? 'จ่ายแล้ว' : esc(U.relDays(n))} · ${dd}</span></div>
+    <div class="pl-side">${b.paid ? '<span class="pl-wm" aria-hidden="true">PAID</span>' : ''}
+      <span class="pl-amt">${amt.int}${amt.dec ? `<small>${amt.dec}</small>` : ''}<span class="sr"> บาท</span></span>
+      ${b.paid ? `<span class="pl-ok" role="img" aria-label="จ่ายแล้ว"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6.5 5 9l5-6"/></svg></span>`
+        : `<button class="pl-pay" data-pay="${b.billId}" aria-label="บันทึกว่าจ่าย ${esc(b.name)} แล้ว">จ่าย</button>`}
+    </div>
+    ${soon ? '<i class="pl-dia" aria-hidden="true"></i><span class="sr">ใกล้ครบกำหนด</span>' : ''}
+  </div>`;
+}
+
+const GOAL_STATUS: Record<string, { en: string; th: string; cls: 'pos' | 'warn' | '' }> = {
+  done: { en: 'DONE', th: 'สำเร็จ', cls: 'pos' },
+  ahead: { en: 'AHEAD', th: 'เร็วกว่าแผน', cls: 'pos' },
+  on_track: { en: 'ON TRACK', th: 'ตามแผน', cls: 'pos' },
+  behind: { en: 'BEHIND', th: 'ช้ากว่าแผน', cls: 'warn' },
+  no_plan: { en: 'NO PLAN', th: 'ยังไม่ตั้งยอดออม', cls: '' },
+};
+/** Goal card (spec 4.6): L corner, name + saved / target, 4px bar, mono ETA from calculateGoals. `full` adds Plan's details. */
+function goalCard(g: ReturnType<typeof svc.getGoals>[number], full = false) {
+  const raw = svc.snapshot().goals.find(x => x.id === g.goalId)!;
+  const st = GOAL_STATUS[g.status]!;
+  const eta = g.status === 'done' ? 'DONE' : g.projectedDate ? `ETA · ${U.dMed(g.projectedDate)}` : 'ETA · —';
+  const inner = `<i class="gc-l" aria-hidden="true"></i>
+    <div class="gc-top"><span class="gc-n">${esc(g.name)}</span><span class="gc-v">${numCur(g.saved)}<span class="gc-t"> / ${baht(g.target)}</span></span></div>
+    <div class="gc-bar" role="img" aria-label="ออมแล้ว ${g.percent}%"><i style="width:${g.percent}%"></i></div>
+    <div class="gc-eta"><span>${eta}${raw.monthlyContribution && g.status !== 'done' ? ` ถ้าเก็บเดือนละ ${baht(raw.monthlyContribution)}` : ''}</span><span>${g.percent}% · ${st.th}</span></div>`;
+  if (!full) return `<a class="goalc" href="#plan-goals">${inner}</a>`;
+  return `<div class="goalc">${inner}
+    ${st.cls ? `<span class="schip ${st.cls} gc-chip" aria-hidden="true">${st.en}</span>` : ''}
+    ${g.neededPerMonth && g.status === 'behind' ? `<div class="gc-eta"><span class="warn">ต้องออมเดือนละ ${baht(g.neededPerMonth)} ถึงจะทัน ${U.dMed(raw.targetDate!)}</span></div>` : ''}
+    <div class="acts"><button class="btn primary sm" data-contrib="${g.goalId}" style="flex:1">${ic('plus')}ออมเพิ่ม</button><button class="btn sm" data-goal="${g.goalId}">แก้ไข</button></div>
+  </div>`;
 }
 
 function budRow(l: { categoryId: string; name: string; plan: number; spent: number; remaining: number; percentUsed: number; over: boolean }, elapsed: number) {
@@ -333,7 +435,7 @@ function viewLedger(): [string, string] {
     </div>
     <div id="ledger-list" style="margin-top:8px"></div>
   </div>`;
-  return [topTitle('รายการ'), body];
+  return [moduleHeader({ crumb: 'LEDGER', th: 'รายการ', en: 'TRANSACTIONS' }), body];
 }
 
 function renderLedgerList() {
@@ -342,7 +444,7 @@ function renderLedgerList() {
   const txs = svc.getTransactions({ from: cyc.from, to: cyc.to, includeVoided: L.voided, type: L.type === 'all' ? undefined : L.type, text: L.q || undefined });
   const el = $('#ledger-list');
   if (!el) return;
-  if (!txs.length) { el.innerHTML = `<div class="card empty"><b>${L.q ? 'ไม่พบรายการ' : 'ยังไม่มีรายการในรอบนี้'}</b>${L.q ? 'ลองคำอื่น' : ''}</div>`; return; }
+  if (!txs.length) { el.innerHTML = L.q ? emptyBox('NO MATCH', 'ไม่พบรายการ', 'ลองคำอื่น') : emptyBox('NO ENTRIES', 'ยังไม่มีรายการในรอบนี้'); return; }
   const m = maps();
   const groups = new Map<string, Transaction[]>();
   for (const t of txs) { const g = groups.get(t.date) ?? []; g.push(t); groups.set(t.date, g); }
@@ -418,7 +520,7 @@ function viewPlan(sub = 'budget'): [string, string] {
       </div>
       ${prevIncome ? `<p class="fine" style="margin-top:8px">รายรับรอบก่อน ${baht(prevIncome)} · งบรวม + บิลประจำ = ${baht(planned + monthlyBills())} (${Math.round(((planned + monthlyBills()) / prevIncome) * 100)}% ของรายรับ)</p>` : ''}
       <div class="sec">${secH('PLANNED', 'หมวดที่ตั้งงบ', 'tag')}
-        ${bud.lines.length ? `<div class="card rows">${bud.lines.map(l => budRow(l, elapsed)).join('')}</div>` : `<div class="card empty"><b>ยังไม่มีหมวดที่ตั้งงบ</b>แตะหมวดด้านล่างเพื่อตั้งงบต่อเดือน</div>`}
+        ${bud.lines.length ? `<div class="card rows">${bud.lines.map(l => budRow(l, elapsed)).join('')}</div>` : emptyBox('NO BUDGET', 'ยังไม่มีหมวดที่ตั้งงบ', 'แตะหมวดด้านล่างเพื่อตั้งงบต่อเดือน')}
       </div>
       ${unplanned.length ? `<div class="sec">${secH('UNPLANNED', 'ยังไม่ตั้งงบ', 'plus')}<div class="card rows">${unplanned.map(c => {
         const sp = svc.getTransactions({ from: s.cycle.from, to: s.cycle.to, categoryId: c.id, type: 'expense' }).reduce((a, t) => a + t.amount, 0);
@@ -435,35 +537,22 @@ function viewPlan(sub = 'budget'): [string, string] {
         <div class="tile"><div class="l">Subscription (${subs.length})</div><div class="v">${baht(subs.reduce((a, b) => a + (b.cadence === 'yearly' ? Math.round(b.amount / 12) : b.amount), 0))}</div></div>
       </div>
       <div class="sec">${secH('THIS CYCLE', 'รอบนี้', 'calendar')}
-        ${items.length ? `<div class="card rows">${items.map(b => billRow(b, today)).join('')}</div>` : `<div class="card empty"><b>ไม่มีบิลในรอบนี้</b></div>`}</div>
+        ${items.length ? `<div class="plates">${billOrder(items).map(b => billRow(b, today)).join('')}</div>` : emptyBox('NO BILLS', 'ไม่มีบิลในรอบนี้')}</div>
       <div class="sec">${secH('ALL BILLS', 'บิลทั้งหมด', 'list')}
-        <div class="card rows">${all.map(b => `<button class="row" data-bill="${b.id}" ${b.active ? '' : 'style="opacity:.55"'}>
+        ${all.length ? `<div class="card rows">${all.map(b => `<button class="row" data-bill="${b.id}" ${b.active ? '' : 'style="opacity:.55"'}>
           <span class="ic">${ic(b.isSubscription ? 'subs' : 'calendar')}</span>
           <span class="mid"><span class="n">${esc(b.name)}</span><span class="s">${b.cadence === 'monthly' ? `ทุกวันที่ ${b.dueDay}` : `ทุกปี ${b.dueDay} ${U.MON[(b.dueMonth ?? 1) - 1]}`}${b.active ? '' : ' · ปิดอยู่'}</span></span>
-          <span class="amt">${baht(b.amount)}</span></button>`).join('') || '<div class="empty">ยังไม่มีบิล</div>'}</div>
+          <span class="amt">${baht(b.amount)}</span></button>`).join('')}</div>` : emptyBox('NO BILLS', 'ยังไม่มีบิล', 'เพิ่มค่าห้อง ค่าเน็ต Subscription เพื่อให้ "ใช้ได้" แม่นขึ้น')}
         <button class="btn block" data-act="new-bill" style="margin-top:10px">${ic('plus')}เพิ่มบิลประจำ</button></div>`;
   } else {
     const gs = svc.getGoals();
-    const raw = new Map(svc.snapshot().goals.map(g => [g.id, g]));
-    const label: Record<string, [string, string]> = { done: ['สำเร็จ', 'done'], ahead: ['เร็วกว่าแผน', 'ok'], on_track: ['ตามแผน', 'ok'], behind: ['ช้ากว่าแผน', 'bad'], no_plan: ['ยังไม่ตั้งยอดออม', ''] };
     body = `${tabs}
-      <div class="sec" style="margin-top:16px"><div class="goals-grid">${gs.map(g => {
-        const r = raw.get(g.goalId)!;
-        const [lt, lc] = label[g.status]!;
-        return `<div class="card goal chamfer">
-          <div class="top"><span class="n">${esc(g.name)}</span><span class="status ${lc}">${lt}</span></div>
-          <div class="figs"><span class="num">${baht(g.saved)}</span><span class="muted">/ ${baht(g.target)} · ${g.percent}%</span></div>
-          <div class="gbar" role="img" aria-label="${g.percent}%"><i style="width:${g.percent}%"></i></div>
-          <div class="meta"><span>ออมเดือนละ ${baht(r.monthlyContribution)}</span><span>${g.projectedDate ? 'คาดว่าถึง ' + U.dMed(g.projectedDate) : ''}</span></div>
-          ${g.neededPerMonth && g.status === 'behind' ? `<div class="meta"><span class="warn">ต้องออมเดือนละ ${baht(g.neededPerMonth)} ถึงจะทัน ${U.dMed(r.targetDate!)}</span></div>` : ''}
-          <div class="acts"><button class="btn primary sm" data-contrib="${g.goalId}" style="flex:1">${ic('plus')}ออมเพิ่ม</button><button class="btn sm" data-goal="${g.goalId}">แก้ไข</button></div>
-        </div>`;
-      }).join('')}</div>
-      ${gs.length ? '' : `<div class="card empty"><b>ยังไม่มีเป้าหมาย</b>เช่น เงินสำรองฉุกเฉิน 3–6 เดือนของค่าใช้จ่าย</div>`}
+      <div class="sec" style="margin-top:16px"><div class="goals-grid">${gs.map(g => goalCard(g, true)).join('')}</div>
+      ${gs.length ? '' : emptyBox('NO GOALS', 'ยังไม่มีเป้าหมาย', 'เช่น เงินสำรองฉุกเฉิน 3–6 เดือนของค่าใช้จ่าย')}
       <button class="btn block" data-act="new-goal" style="margin-top:10px">${ic('plus')}เพิ่มเป้าหมาย</button>
       <p class="fine" style="margin-top:10px">"ออมเพิ่ม" = โอนจากบัญชีใช้จ่ายไปบัญชีเงินออม · ยอดออมรายเดือนถูกกันไว้ใน "ใช้ได้" จนกว่าจะโอนจริง</p></div>`;
   }
-  return [topTitle('แผน'), body];
+  return [moduleHeader({ crumb: 'PLAN', th: 'แผน', en: 'PLAN', counter: `${['budget', 'bills', 'goals'].indexOf(tab) + 1} / 3` }), body];
 }
 const monthlyBills = () => svc.getBills().filter(b => b.active).reduce((a, b) => a + (b.cadence === 'yearly' ? Math.round(b.amount / 12) : b.amount), 0);
 
@@ -483,8 +572,8 @@ function viewMore(sub?: string): [string, string] {
     ${item('#more-settings', 'settings', 'ตั้งค่า', 'รอบเงินเดือน ธีม กันเงินภาษี')}
     ${item('#more-backup', 'backup', 'สำรอง / กู้คืนข้อมูล', prefs.lastBackup ? `ล่าสุด ${U.dMed(prefs.lastBackup)}` : 'ยังไม่เคยสำรอง')}
   </div></div>
-  <div class="sec card pad"><div class="micro">NEXUS // v${APP_VERSION}</div><p class="fine" style="margin-top:6px">ข้อมูลทั้งหมดเก็บในเบราว์เซอร์ของเครื่องนี้เท่านั้น ไม่มีเซิร์ฟเวอร์ ไม่มีบัญชีผู้ใช้ ไฟล์สำรองใช้ร่วมกับ NEXUS CLI ได้</p><div class="tri" style="margin-top:12px"></div></div>`;
-  return [topTitle('เพิ่มเติม'), body];
+  <div class="sec">${secH('ABOUT', 'เกี่ยวกับ NEXUS', 'phone')}<div class="card pad"><p class="mono" style="font-size:11px;color:var(--ink-3)">NEXUS · PERSONAL FINANCE OS · v${APP_VERSION}</p><p class="fine" style="margin-top:6px">ข้อมูลทั้งหมดเก็บในเบราว์เซอร์ของเครื่องนี้เท่านั้น ไม่มีเซิร์ฟเวอร์ ไม่มีบัญชีผู้ใช้ ไฟล์สำรองใช้ร่วมกับ NEXUS CLI ได้</p><div class="tri" aria-hidden="true" style="margin-top:12px"></div></div></div>`;
+  return [moduleHeader({ crumb: 'MORE', th: 'อื่น ๆ', en: 'SYSTEM' }), body];
 }
 
 function viewAccounts(): [string, string] {
@@ -500,7 +589,7 @@ function viewAccounts(): [string, string] {
     <div class="sec"><div class="card rows">${accs.map(a => `<button class="row" data-acc="${a.id}"><span class="ic">${ic(accIcon(a.kind))}</span><span class="mid"><span class="n">${esc(a.name)}</span><span class="s">${{ bank: 'บัญชีธนาคาร', wallet: 'e-Wallet', cash: 'เงินสด' }[a.kind]}${a.spendable ? '' : ' · เงินออม (ไม่นับใน "ใช้ได้")'}</span></span><span class="amt ${a.balance < 0 ? 'neg' : ''}">${a.balance < 0 ? '−' + baht(-a.balance) : baht(a.balance)}</span></button>`).join('')}</div>
     <button class="btn block" data-act="new-acc" style="margin-top:10px">${ic('plus')}เพิ่มบัญชี</button>
     <p class="fine" style="margin-top:10px">ยอดไม่ตรงกับแอปธนาคาร? แตะบัญชีแล้วใส่ "ยอดจริงตอนนี้" — แนะนำให้เทียบยอดสัปดาห์ละครั้ง</p></div>`;
-  return [topSub('บัญชีและยอดเงิน', '#more'), body];
+  return [moduleHeader({ crumb: 'MORE / ACCOUNTS', th: 'บัญชีและยอดเงิน', en: 'ACCOUNTS', back: '#more' }), body];
 }
 
 function viewCategories(): [string, string] {
@@ -510,7 +599,7 @@ function viewCategories(): [string, string] {
     <div class="sec"><div class="card rows">${cats.map(c => `<button class="row" data-cat="${c.id}" ${c.archived ? 'style="opacity:.5"' : ''}><span class="ic">${ic(catIcon(c))}</span><span class="mid"><span class="n">${esc(c.name)}</span><span class="s">${[c.monthlyPlan ? 'งบ ' + baht(c.monthlyPlan) : '', c.taxSection ? 'นับภาษี ' + c.taxSection : '', c.archived ? 'ซ่อนอยู่' : ''].filter(Boolean).join(' · ') || '&nbsp;'}</span></span><span class="chev" style="width:18px;color:var(--ink-3)">${ic('chevron')}</span></button>`).join('')}</div>
     <button class="btn block" data-act="new-cat" style="margin-top:10px">${ic('plus')}เพิ่มหมวด${k === 'expense' ? 'รายจ่าย' : 'รายรับ'}</button>
     ${k === 'income' ? '<p class="fine" style="margin-top:10px">ตั้ง "ประเภทเงินได้" ให้หมวดที่ต้องเสียภาษี เช่น เงินเดือน = 40(1), ฟรีแลนซ์/ค่าจ้างรายงาน = 40(2), ขายของ = 40(8) เพื่อให้หน้าภาษีคำนวณได้</p>' : '<p class="fine" style="margin-top:10px">หมวดที่ใช้แล้วลบไม่ได้ (ประวัติจะหาย) แต่ซ่อนได้</p>'}</div>`;
-  return [topSub('หมวดหมู่', '#more'), body];
+  return [moduleHeader({ crumb: 'MORE / CATEGORIES', th: 'หมวดหมู่', en: 'CATEGORIES', back: '#more' }), body];
 }
 
 function viewSettings(): [string, string] {
@@ -525,33 +614,40 @@ function viewSettings(): [string, string] {
       <input id="set-taxres" inputmode="decimal" value="${s.monthlyTaxReserve ? s.monthlyTaxReserve / 100 : ''}" placeholder="0">
       <div class="hint">ถ้ามีรายได้ที่ไม่ได้ถูกหัก ณ ที่จ่ายพอ ดูยอดแนะนำได้ในหน้าภาษี</div></label>
     <div class="field"><span>ธีม</span><div class="segctl">${([['auto', 'ตามเครื่อง'], ['light', 'สว่าง'], ['dark', 'มืด']] as const).map(([k, l]) => `<button data-theme-set="${k}" aria-pressed="${prefs.theme === k}">${l}</button>`).join('')}</div></div>
+    <label class="field"><span>ชื่อที่ใช้ทักทาย (ไม่บังคับ)</span><input id="set-name" value="${esc(prefs.name ?? '')}" maxlength="24" autocomplete="nickname" placeholder="ชื่อเล่น">
+      <div class="hint">ใช้ใน Boot Log ตอนเปิดแอปครั้งแรกของวัน · เก็บในเครื่องนี้เท่านั้น</div></label>
+    <label class="check"><input type="checkbox" id="set-boot" ${prefs.bootLog !== false ? 'checked' : ''}>แสดง Boot Log ตอนเปิดแอปครั้งแรกของวัน</label>
+    <p class="fine" style="margin:-4px 0 6px">ไม่แสดงในโหมดตัวอย่าง หรือเมื่อเครื่องตั้งค่าให้ลดการเคลื่อนไหว</p>
     <label class="check"><input type="checkbox" id="set-hap" ${prefs.haptics ? 'checked' : ''}>สั่นเบา ๆ เมื่อบันทึก (Android)</label>
     ${installEvt ? `<button class="btn block dark" data-act="install" style="margin-top:12px">${ic('phone')}ติดตั้งเป็นแอป</button>` : ''}
   </div>`;
-  return [topSub('ตั้งค่า', '#more'), body];
+  return [moduleHeader({ crumb: 'MORE / SETTINGS', th: 'ตั้งค่า', en: 'SETTINGS', back: '#more' }), body];
 }
 
 function viewBackup(): [string, string] {
   const n = svc.snapshot().transactions.length;
   const body = `<div class="sec" style="margin-top:16px">
     <div class="notice">${ic('alert')}<span>ข้อมูลอยู่ในเบราว์เซอร์ของเครื่องนี้เท่านั้น ถ้าล้างข้อมูลเบราว์เซอร์หรือทำเครื่องหาย ข้อมูลจะหาย — ดาวน์โหลดไฟล์สำรองเก็บไว้ใน Google Drive เป็นประจำ</span></div>
-    <div class="card pad" style="margin-top:12px">
-      <div class="micro">BACKUP // ${n} TRANSACTIONS</div>
-      <p style="margin:6px 0 12px">สำรองล่าสุด: <b>${prefs.lastBackup ? U.dMed(prefs.lastBackup) : 'ยังไม่เคย'}</b></p>
+  </div>
+  <div class="sec">${secH('BACKUP', 'สำรองข้อมูล', 'backup')}
+    <div class="card pad">
+      <p style="margin:0 0 12px">สำรองล่าสุด: <b>${prefs.lastBackup ? U.dMed(prefs.lastBackup) : 'ยังไม่เคย'}</b> · <span class="muted">${n} รายการ</span></p>
       <div class="btn-row"><button class="btn primary" data-act="export-json">${ic('backup')}ดาวน์โหลดไฟล์สำรอง (.json)</button>
       <button class="btn" data-act="export-csv">ส่งออก CSV (Excel)</button></div>
     </div>
-    <div class="card pad" style="margin-top:12px">
-      <div class="micro">RESTORE</div>
-      <p class="fine" style="margin:6px 0 12px">กู้คืนจากไฟล์ .json ที่สำรองไว้ (ใช้ไฟล์ nexus.json จาก NEXUS CLI ได้ด้วย) — ข้อมูลในเครื่องนี้จะถูกแทนที่ทั้งหมด</p>
+  </div>
+  <div class="sec">${secH('RESTORE', 'กู้คืนข้อมูล', 'backup')}
+    <div class="card pad">
+      <p class="fine" style="margin:0 0 12px">กู้คืนจากไฟล์ .json ที่สำรองไว้ (ใช้ไฟล์ nexus.json จาก NEXUS CLI ได้ด้วย) — ข้อมูลในเครื่องนี้จะถูกแทนที่ทั้งหมด</p>
       <label class="btn" style="cursor:pointer">เลือกไฟล์สำรอง<input type="file" id="restore" accept=".json,application/json" class="sr"></label>
     </div>
-    <div class="card pad" style="margin-top:12px">
-      <div class="micro">DANGER ZONE</div>
-      <p class="fine" style="margin:6px 0 12px">ลบข้อมูลทั้งหมดในเครื่องนี้แล้วเริ่มใหม่</p>
+  </div>
+  <div class="sec">${secH('DANGER ZONE', 'ล้างข้อมูล', 'alert')}
+    <div class="card pad">
+      <p class="fine" style="margin:0 0 12px">ลบข้อมูลทั้งหมดในเครื่องนี้แล้วเริ่มใหม่</p>
       <button class="btn danger" data-act="reset">ล้างข้อมูลทั้งหมด</button>
     </div></div>`;
-  return [topSub('สำรอง / กู้คืนข้อมูล', '#more'), body];
+  return [moduleHeader({ crumb: 'MORE / BACKUP', th: 'สำรอง / กู้คืนข้อมูล', en: 'BACKUP', back: '#more' }), body];
 }
 
 // ------------------------------------------------------------------ TAX
@@ -571,16 +667,12 @@ function viewTax(): [string, string] {
       <div class="segctl" style="flex:1;min-width:200px">${[curY - 1, curY].map(y => `<button data-taxyear="${y}" aria-pressed="${y === year}">ปีภาษี ${U.be(y)}</button>`).join('')}</div>
       <div class="segctl" style="flex:1;min-width:220px">${([['projected', 'ประมาณทั้งปี'], ['actual', 'ถึงวันนี้']] as const).map(([k, l]) => `<button data-taxbasis="${k}" aria-pressed="${st.taxBasis === k}">${l}</button>`).join('')}</div>
     </div>
-    ${taxed.length === 0 ? `<div class="notice warn">${ic('alert')}<span>ยังไม่มีหมวดรายรับที่ตั้งประเภทเงินได้ — ตั้งที่ หมวดหมู่ › รายรับ</span><a class="act" href="#more-categories">ไปตั้ง</a></div>` : ''}
-    <section class="hero chamfer" style="margin-top:12px">
-      <div class="vband" aria-hidden="true"><b>TAX ${U.be(year)}</b></div>
-      <div><div class="hero-band"><b aria-hidden="true">P.N.D. 90/91</b><span class="micro">${st.taxBasis === 'projected' ? 'PROJECTION' : 'YEAR TO DATE'}</span></div>
-      <div class="hero-body tax-hero">
-        <div class="hero-label">${e.remaining >= 0 ? 'ภาษีที่อาจต้องจ่ายเพิ่มตอนยื่น' : 'อาจได้เงินคืนประมาณ'}</div>
-        <div class="amt ${e.remaining < 0 ? 'pos' : ''}">${baht(Math.abs(e.remaining))}</div>
-        <div class="hero-sub">ภาษีทั้งปี <b>${baht(e.tax)}</b> · ถูกหัก ณ ที่จ่ายแล้ว <b>${baht(e.withheld)}</b>${e.method !== 'progressive' ? ' · ใช้วิธีภาษีขั้นต่ำ 0.5%' : ''}</div>
-        ${suggestReserve && st.taxBasis === 'projected' ? `<div class="notice" style="margin-top:12px">${ic('savings')}<span>กันไว้เดือนละ <b>${baht(suggestReserve)}</b> อีก ${monthsLeft} เดือนจะพอ${s.monthlyTaxReserve ? ` (ตอนนี้กันไว้ ${baht(s.monthlyTaxReserve)})` : ''}</span><button class="act" data-setreserve="${suggestReserve}">ใช้ยอดนี้</button></div>` : ''}
-      </div></div>
+    ${taxed.length === 0 ? `<div class="notice warn">${noteChip('warn')}<span>ยังไม่มีหมวดรายรับที่ตั้งประเภทเงินได้ — ตั้งที่ หมวดหมู่ › รายรับ</span><a class="act" href="#more-categories">ไปตั้ง</a></div>` : ''}
+    <section class="hero" aria-labelledby="tax-l">
+      <div class="hero-top"><span class="hl" id="tax-l"><span aria-hidden="true">P.N.D. 90/91 · ${U.be(year)} · </span><span class="th">${e.remaining >= 0 ? 'ภาษีที่อาจต้องจ่ายเพิ่มตอนยื่น' : 'อาจได้เงินคืนประมาณ'}</span></span>${st.taxBasis === 'projected' ? statusChip('info', 'PROJECTION', 'ประมาณทั้งปี') : statusChip('info', 'YEAR TO DATE', 'ถึงวันนี้')}</div>
+      <div class="hero-amt ${e.remaining < 0 ? 'pos' : ''}">${numCur(Math.abs(e.remaining))}</div>
+      <div class="hero-sub">ภาษีทั้งปี <b>${baht(e.tax)}</b> · ถูกหัก ณ ที่จ่ายแล้ว <b>${baht(e.withheld)}</b>${e.method !== 'progressive' ? ' · ใช้วิธีภาษีขั้นต่ำ 0.5%' : ''}</div>
+      ${suggestReserve && st.taxBasis === 'projected' ? `<div class="notice">${ic('savings')}<span>กันไว้เดือนละ <b>${baht(suggestReserve)}</b> อีก ${monthsLeft} เดือนจะพอ${s.monthlyTaxReserve ? ` (ตอนนี้กันไว้ ${baht(s.monthlyTaxReserve)})` : ''}</span><button class="act" data-setreserve="${suggestReserve}">ใช้ยอดนี้</button></div>` : ''}
     </section>
     <div class="two">
       <div class="sec">${secH('CALC', 'ที่มาของตัวเลข', 'tax')}<div class="card">
@@ -600,13 +692,13 @@ function viewTax(): [string, string] {
         ${rulesBrackets().map((b, i) => `<tr class="${i === hitIdx && e.netIncome > 0 ? 'hit' : ''}"><td>${b.label}</td><td>${b.rate ? b.rate * 100 + '%' : 'ยกเว้น'}</td><td>${e.bands[i] ? baht(e.bands[i]!.tax) : '—'}</td></tr>`).join('')}
       </tbody></table></div></div>
       <div class="sec">${secH('INCOME', 'รายได้ที่นับภาษี', 'salary')}<div class="card rows">
-        ${taxed.map(c => `<div class="kv"><span class="k">${esc(c.name)} · ${c.taxSection}</span><span class="v">${baht(svc.getTransactions({ from: `${year}-01-01`, to: `${year + 1}-01-01`, categoryId: c.id, type: 'income' }).reduce((a, t) => a + t.amount, 0))}</span></div>`).join('') || '<div class="empty">—</div>'}
+        ${taxed.map(c => `<div class="kv"><span class="k">${esc(c.name)} · ${c.taxSection}</span><span class="v">${baht(svc.getTransactions({ from: `${year}-01-01`, to: `${year + 1}-01-01`, categoryId: c.id, type: 'income' }).reduce((a, t) => a + t.amount, 0))}</span></div>`).join('') || emptyBox('NO TAXABLE INCOME', 'ยังไม่มีรายได้ที่นับภาษี', 'ตั้ง "ประเภทเงินได้" ให้หมวดรายรับที่ หมวดหมู่ › รายรับ')}
       </div>
       <label class="field" style="margin-top:12px"><span>อัตราหักค่าใช้จ่าย 40(8) (%)</span><input id="rate408" inputmode="decimal" value="${Math.round(s.section408DeductionRate * 100)}"><div class="hint">ขึ้นกับประเภทธุรกิจ (เหมา 60% ใช้ได้กับหลายประเภท) — ตรวจก่อนยื่น</div></label></div></div>
     </div>
     <div class="sec card pad"><p class="fine"><b>ประมาณการเพื่อวางแผนเท่านั้น</b> ไม่ใช่การยื่นภาษี ยืนยันตัวเลขจริงที่ efiling.rd.go.th · ภ.ง.ด.90/91 ของปีภาษี ${U.be(year)} ยื่นภายใน 31 มี.ค. ${U.be(year + 1)} (ยื่นออนไลน์มักได้ขยายถึงต้นเมษายน — ตรวจประกาศกรมสรรพากรของปีนั้น) · อัตราภาษีตรวจล่าสุด ${U.dMed(e.rules.verifiedAt)}</p>
     <p class="fine" style="margin-top:6px">ประมาณทั้งปี = ยอดจริง + ค่าเฉลี่ยต่อเดือนตั้งแต่เดือนแรกที่บันทึก × เดือนที่เหลือ</p></div>`;
-  return [topSub('ภาษี', '#more'), body];
+  return [moduleHeader({ crumb: 'MORE / TAX', th: 'ภาษี', en: 'TAX CENTER', back: '#more' }), body];
 }
 function rulesBrackets() {
   const B = [0, 150000, 300000, 500000, 750000, 1000000, 2000000, 5000000];
@@ -827,7 +919,9 @@ function payBill(id: string) {
   const b = svc.getBills().find(x => x.id === id)!;
   const t = guard(() => svc.payBill(id));
   if (!t) return;
+  justPaid = id;
   U.buzz(15); render();
+  justPaid = null;
   U.toast(`จ่าย ${b.name} ${baht(b.amount)}`, { undo: () => { svc.voidTransaction(t.id, 'undo'); render(); } });
 }
 
@@ -975,7 +1069,7 @@ function onboarding(step = 0, draft: { bal: Record<string, string>; cycle: numbe
   const accs = svc.getAccounts();
   const stepTag = (n: number) => `<div class="steps" aria-hidden="true"><b>${String(n).padStart(2, '0')}</b> / 03</div>`;
   if (step === 0) {
-    el.innerHTML = `<div class="tri"></div><div class="onb-top"><div class="micro">// PERSONAL FINANCE OS</div></div>
+    el.innerHTML = `<div class="tri" aria-hidden="true"></div><div class="onb-top"><div class="micro">// PERSONAL FINANCE OS</div></div>
       <div class="onb-b"><div class="onb-hero">NEX<span>US</span></div>
         <p style="font-size:18px;margin-top:18px;font-weight:500">รู้ทุกวันว่า "ใช้ได้อีกเท่าไหร่" โดยไม่ต้องเดา</p>
         <div class="card rows" style="margin-top:20px">
@@ -986,12 +1080,12 @@ function onboarding(step = 0, draft: { bal: Record<string, string>; cycle: numbe
       <div class="onb-f"><button class="btn primary block" data-o="start">เริ่มตั้งค่า (1 นาที)</button><button class="btn block" data-o="demo">ลองดูด้วยข้อมูลตัวอย่างก่อน</button>
         <label class="btn block" style="cursor:pointer">กู้คืนจากไฟล์สำรอง<input type="file" id="onb-restore" accept=".json" class="sr"></label></div>`;
   } else if (step === 1) {
-    el.innerHTML = `<div class="tri"></div><div class="onb-top">${stepTag(1)}</div>
+    el.innerHTML = `<div class="tri" aria-hidden="true"></div><div class="onb-top">${stepTag(1)}</div>
       <div class="onb-b"><h2 style="font-size:24px">ตอนนี้มีเงินอยู่เท่าไหร่?</h2><p class="muted" style="margin:6px 0 18px">เปิดแอปธนาคาร/วอลเล็ตแล้วใส่ยอดตามจริง ไม่มีใส่ 0 ได้ — เปลี่ยนชื่อหรือเพิ่มบัญชีได้ทีหลัง</p>
       ${accs.map(a => `<label class="field"><span>${ic(accIcon(a.kind)).replace('<svg', '<svg style="width:16px;height:16px;vertical-align:-3px;margin-right:6px"')}${esc(a.name)}${a.spendable ? '' : ' (เงินออม)'}</span><input data-bal="${a.id}" inputmode="decimal" placeholder="0" value="${esc(draft.bal[a.id] ?? '')}"></label>`).join('')}</div>
       <div class="onb-f"><button class="btn primary block" data-o="next1">ต่อไป</button><button class="btn block" data-o="back0">ย้อนกลับ</button></div>`;
   } else if (step === 2) {
-    el.innerHTML = `<div class="tri"></div><div class="onb-top">${stepTag(2)}</div>
+    el.innerHTML = `<div class="tri" aria-hidden="true"></div><div class="onb-top">${stepTag(2)}</div>
       <div class="onb-b"><h2 style="font-size:24px">มีรายได้ประจำไหม?</h2><p class="muted" style="margin:6px 0 18px">ใช้กำหนดว่าหน้าหลักจะบอกอะไร — เปลี่ยนได้ทีหลังในตั้งค่า</p>
       <div class="card rows">
         <button class="row" data-onb-mode="regular" aria-pressed="${!draft.none}" style="${!draft.none ? 'box-shadow:inset 4px 0 0 var(--signal)' : ''}"><span class="ic">${ic('salary')}</span><span class="mid"><span class="n">มีรายได้ประจำ</span><span class="s">บอก "ใช้ได้อีกเท่าไหร่ในรอบนี้" นับตามวันเงินเข้า</span></span>${!draft.none ? ic('check') : ''}</button>
@@ -1002,7 +1096,7 @@ function onboarding(step = 0, draft: { bal: Record<string, string>; cycle: numbe
       <label class="field" style="margin-top:14px"><span>หรือเลือกวันอื่น</span><select id="onb-cyc">${Array.from({ length: 28 }, (_, i) => opt(String(i + 1), `วันที่ ${i + 1}`, draft.cycle === i + 1)).join('')}</select></label>`}</div>
       <div class="onb-f"><button class="btn primary block" data-o="next2">ต่อไป</button><button class="btn block" data-o="back1">ย้อนกลับ</button></div>`;
   } else {
-    el.innerHTML = `<div class="tri"></div><div class="onb-top">${stepTag(3)}</div>
+    el.innerHTML = `<div class="tri" aria-hidden="true"></div><div class="onb-top">${stepTag(3)}</div>
       <div class="onb-b"><h2 style="font-size:24px">พร้อมแล้ว</h2>
       <div class="card rows" style="margin-top:16px">
         <div class="row"><span class="ic" style="background:var(--signal);color:#000;border-color:#000">${ic('plus')}</span><span class="mid"><span class="n">จดทันทีหลังสแกนจ่าย</span><span class="s">ปุ่ม + สีเหลืองตรงกลาง — รายการที่จดบ่อยจะขึ้นให้แตะทีเดียว</span></span></div>
@@ -1031,12 +1125,120 @@ function onboarding(step = 0, draft: { bal: Record<string, string>; cycle: numbe
     svc.updateSettings({ cycleStartDay: draft.cycle, incomeMode: draft.none ? 'none' : 'regular' });
     onboarding(3, draft);
   });
-  const finish = (to?: string) => { setPrefs({ onboarded: true, demo: false }); el!.remove(); if (to) location.hash = to; render(); };
+  const finish = (to?: string) => { setPrefs({ onboarded: true, demo: false, lastBoot: svc.today() }); el!.remove(); if (to) location.hash = to; render(); };
   on('finish', () => finish('#home'));
   on('bills', () => { finish('#plan-bills'); setTimeout(() => billForm(), 250); });
   el.querySelector('#onb-restore')?.addEventListener('change', async e => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) { el!.remove(); await restore(f); } });
   el.scrollTop = 0;
   (el.querySelector('input,button') as HTMLElement | null)?.focus();
+}
+
+// ------------------------------------------------------------------ DAILY BOOT LOG (spec 6)
+/** First open (or resume) of the Bangkok day, after onboarding; never in demo, when switched off, or under reduced motion.
+ *  (prefs.onboarded, not the load-time firstRun flag, so a session that onboarded and stays open overnight still gets it.) */
+function shouldBoot() {
+  if (!prefs.onboarded || $('#onb') || prefs.demo || prefs.bootLog === false) return false;
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+  return prefs.lastBoot !== svc.today();
+}
+
+/** Terminal lines. Labels are English (it is a terminal); names are the user's own. A line with nothing to say is left out. */
+function bootLines(): string {
+  const today = svc.today();
+  let i = 0;
+  const line = (html: string, cls = '') => `<div class="bl ${cls}" style="--i:${i++}">${html}</div>`;
+  const row = (label: string, value: string, cls: string) =>
+    line(`<span aria-hidden="true">&gt; </span>${esc(label)} <span aria-hidden="true">${'.'.repeat(Math.max(3, 20 - label.length))}</span> <span class="${cls}">${value}</span>`);
+  const out: string[] = [];
+  out.push(line(`<span aria-hidden="true">&gt; </span>BOOT SEQUENCE  <span class="b-dim">${today.replace(/-/g, '.')} ${bkkTime()}</span>`));
+  const entries = svc.snapshot().transactions.length;
+  if (entries) out.push(row('LEDGER', `${entries.toLocaleString('en-US')} ENTRIES`, 'b-info'));
+
+  const accs = svc.getAccounts();
+  const bal = accs.reduce((a, x) => a + x.balance, 0);
+  if (bal || svc.snapshot().transactions.length) out.push(row('BALANCE', baht(bal), 'b-sig'));
+
+  let shortfall = false;
+  if (svc.getSettings().incomeMode === 'none') {
+    const r = svc.getRunway();
+    if (r.days !== null) out.push(row('RUNWAY', `${r.days > 999 ? '999+' : r.days} DAYS`, r.days < 30 ? 'b-warn' : 'b-sig'));
+  } else {
+    const st = svc.getSafeToSpend();
+    if (st.shortfall > 0) { shortfall = true; out.push(row('SHORTFALL', baht(st.shortfall), 'b-neg')); }
+    else if (st.safeToSpend > 0) out.push(row('SAFE TO SPEND', `${baht(st.safeToSpend)}<span class="b-dim"> · ${U.bahtParts(st.perDay).int}/D</span>`, 'b-sig'));
+  }
+
+  const bud = svc.getBudgets();
+  const plan = bud.lines.reduce((a, l) => a + l.plan, 0), spent = bud.lines.reduce((a, l) => a + l.spent, 0);
+  if (plan > 0) {
+    const cyc = svc.getSafeToSpend().cycle;
+    const elapsed = (daysBetween(cyc.from, today) + 1) / daysBetween(cyc.from, cyc.to);
+    const pct = Math.round((spent / plan) * 100);
+    out.push(row('MONTH BUDGET', `${pct}% <span class="b-dim">USED</span>`, pct > elapsed * 100 + 10 ? 'b-warn' : 'b-pos'));
+  }
+
+  const cycBills = svc.getUpcomingBills();
+  const unpaid = cycBills.filter(b => !b.paid).sort((a, b) => a.due.localeCompare(b.due));
+  if (unpaid.length) {
+    out.push(row('BILLS DUE', `${unpaid.length} PENDING`, 'b-warn'));
+    for (const b of unpaid.slice(0, 3)) out.push(line(`· ${esc(b.name)} ${baht(b.amount)} — ${esc(U.relDays(daysBetween(today, b.due)))}`, 'sub'));
+  } else if (cycBills.length) out.push(row('BILLS DUE', 'ALL PAID', 'b-pos'));
+
+  const raw = new Map(svc.snapshot().goals.map(g => [g.id, g]));
+  const goal = svc.getGoals().filter(g => g.status !== 'done' && raw.get(g.goalId)?.targetDate)
+    .sort((a, b) => raw.get(a.goalId)!.targetDate!.localeCompare(raw.get(b.goalId)!.targetDate!))[0];
+  if (goal) out.push(row(`GOAL / ${goal.name}`, `${goal.percent}%`, 'b-info'));
+
+  const year = Number(today.slice(0, 4));
+  if (svc.getTax(year).projected.totalGross > 0) out.push(row('TAX P.N.D.90', `READY ${year + 1}.03`, 'b-info'));
+
+  const name = prefs.name?.trim();
+  out.push(line(shortfall
+    ? `<span class="b-warn">WARNING: SHORTFALL</span><i class="boot-cur" aria-hidden="true"></i>`
+    : `<span class="b-pos">ALL SYSTEMS ONLINE.</span> WELCOME BACK${name ? `, ${esc(name.toUpperCase())}` : '.'}<i class="boot-cur" aria-hidden="true"></i>`, 'end'));
+  return out.join('');
+}
+
+/** Full-screen daily summary. All text is in the DOM from the start (animation only hides it visually). */
+function showBootLog() {
+  setPrefs({ lastBoot: svc.today() });
+  const el = document.createElement('div');
+  el.id = 'boot';
+  el.className = 'boot';
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-modal', 'true');
+  el.setAttribute('aria-label', 'สรุปประจำวัน');
+  el.innerHTML = `<div class="boot-scan" aria-hidden="true"></div>
+    <div class="boot-in">
+      <div class="boot-head"><i class="tri-v boot-tri" aria-hidden="true"></i>
+        <div><b class="boot-logo">NEXUS</b><span class="boot-ver">PERSONAL FINANCE OS · v${APP_VERSION}</span></div>
+        <i class="boot-cross" aria-hidden="true"></i></div>
+      <section class="boot-term">
+        <div class="boot-th" aria-hidden="true"><span>// DAILY BOOT LOG</span><span>TTY-01</span></div>
+        ${bootLines()}
+        <i class="boot-hatch" aria-hidden="true"></i>
+      </section>
+      <button type="button" class="btn primary boot-enter">ENTER NEXUS<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8 4l4 4-4 4"/></svg></button>
+      <p class="boot-hint">แสดงครั้งแรกของวัน · แตะที่ไหนก็ได้เพื่อข้าม</p>
+    </div>`;
+  document.body.append(el);
+  document.body.style.overflow = 'hidden';
+  let done = false;
+  const close = (e?: Event) => {
+    e?.preventDefault(); e?.stopPropagation();
+    if (done) return;
+    done = true;
+    window.removeEventListener('keydown', onKey, true);
+    el.classList.add('out');
+    setTimeout(() => { el.remove(); document.body.style.overflow = ''; ($('.mh h1') as HTMLElement | null)?.focus(); }, 300);
+  };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') close(e);
+    else e.stopPropagation(); // e.g. N must not open quick add behind the overlay; Tab still moves focus
+  };
+  el.addEventListener('click', close);
+  window.addEventListener('keydown', onKey, true);
+  ($('.boot-enter', el) as HTMLElement).focus();
 }
 
 // ------------------------------------------------------------------ events (delegated)
@@ -1051,6 +1253,8 @@ function afterRender(r: Route) {
     $('#set-cycle')?.addEventListener('change', e => { if (tryDo(() => svc.updateSettings({ cycleStartDay: Number((e.target as HTMLSelectElement).value) }))) U.toast('บันทึกแล้ว'); });
     $('#set-taxres')?.addEventListener('change', e => { const v = (e.target as HTMLInputElement).value; if (tryDo(() => svc.updateSettings({ monthlyTaxReserve: v.trim() ? parseBaht(v) : 0 }))) U.toast('บันทึกแล้ว'); });
     $('#set-hap')?.addEventListener('change', e => { const on = (e.target as HTMLInputElement).checked; setPrefs({ haptics: on }); U.setHaptics(on); });
+    $('#set-name')?.addEventListener('change', e => { setPrefs({ name: (e.target as HTMLInputElement).value.trim() || undefined }); U.toast('บันทึกแล้ว'); });
+    $('#set-boot')?.addEventListener('change', e => { setPrefs({ bootLog: (e.target as HTMLInputElement).checked }); });
   }
   if (r.page === 'more' && r.sub === 'backup') $('#restore')?.addEventListener('change', e => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) restore(f); (e.target as HTMLInputElement).value = ''; });
   if (r.page === 'more' && r.sub === 'tax') $('#rate408')?.addEventListener('change', e => { const v = Number((e.target as HTMLInputElement).value); if (tryDo(() => svc.updateSettings({ section408DeductionRate: v / 100 }))) render(); });
@@ -1112,7 +1316,12 @@ document.addEventListener('keydown', e => {
 
 window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
 window.addEventListener('storage', e => { if (e.key === 'nexus.rev' && !U.sheetOpen()) render(); });
-document.addEventListener('visibilitychange', () => { if (!document.hidden && !U.sheetOpen()) render(); }); // new day / other tab
+document.addEventListener('visibilitychange', () => { // new day / other tab
+  if (document.hidden || U.sheetOpen()) return;
+  render();
+  // installed PWAs often resume instead of reloading on a new day: show the day's boot log here too
+  if (shouldBoot() && !U.sheetOpen() && !$('#boot')) showBootLog();
+});
 window.addEventListener('beforeinstallprompt', (e: any) => { e.preventDefault(); installEvt = e; if (route().page === 'home') render(); });
 
 // ------------------------------------------------------------------ start
@@ -1123,6 +1332,7 @@ else {
   const q = new URLSearchParams(location.search);
   const add = q.get('add');
   if (add === 'expense' || add === 'income' || add === 'transfer') { openQuickAdd({ type: add }); history.replaceState(null, '', location.pathname + location.hash); }
+  else if (shouldBoot()) showBootLog();
 }
 try { (navigator as any).storage?.persist?.(); } catch { /* ignore */ }
 if ('serviceWorker' in navigator && location.protocol === 'https:' && !/claude|anthropic/.test(location.hostname)) {

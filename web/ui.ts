@@ -64,11 +64,31 @@ export interface Prefs {
   demo?: boolean;
   onboarded?: boolean;
   dismissInstall?: boolean;
+  /** UI v3 theme migration done (a stored 'auto' from v2 was moved to 'dark' once). */
+  themeV3?: boolean;
+  /** Optional name for the Boot Log greeting (Decision 1). */
+  name?: string;
+  /** Last Bangkok date the Daily Boot Log was shown, 'YYYY-MM-DD'. */
+  lastBoot?: string;
+  /** Show the Daily Boot Log on the first open of the day (default on). */
+  bootLog?: boolean;
 }
 const PREF_KEY = 'nexus.prefs';
+/**
+ * Dark is the default. v2 saved the whole prefs object, so 'auto' was stored even when
+ * nobody chose it: move that to 'dark' once (Decision 4); an 'auto' picked after that stays.
+ * Keep in step with the inline theme script in index.template.html.
+ */
 export function loadPrefs(): Prefs {
-  try { return { theme: 'auto', haptics: true, ...JSON.parse(localStorage.getItem(PREF_KEY) || '{}') }; }
-  catch { return { theme: 'auto', haptics: true }; }
+  let stored: Partial<Prefs> = {};
+  try { stored = JSON.parse(localStorage.getItem(PREF_KEY) || '{}'); } catch { /* ignore */ }
+  const p: Prefs = { theme: 'dark', haptics: true, ...stored };
+  if (!p.themeV3) {
+    if (p.theme === 'auto') p.theme = 'dark';
+    p.themeV3 = true;
+    if (Object.keys(stored).length) savePrefs(p);
+  }
+  return p;
 }
 export function savePrefs(p: Prefs) { try { localStorage.setItem(PREF_KEY, JSON.stringify(p)); } catch { /* ignore */ } }
 
@@ -76,7 +96,7 @@ export function applyTheme(p: Prefs) {
   const dark = p.theme === 'dark' || (p.theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', dark ? '#0d0d0e' : '#f2f2f2');
+  if (meta) meta.setAttribute('content', dark ? '#111111' : '#ECECE9');
 }
 
 let hapticsOn = true;
@@ -90,7 +110,7 @@ export function toast(msg: string, opts: { undo?: () => void; error?: boolean; a
   if (!el) { el = document.createElement('div'); el.id = 'toast'; el.className = 'toast'; el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite'); document.body.append(el); }
   el.classList.toggle('err', !!opts.error);
   const act = opts.undo ? { label: 'เลิกทำ', run: opts.undo, icon: ic('undo') } : opts.action ? { ...opts.action, icon: '' } : null;
-  el.innerHTML = `<span>${esc(msg)}</span>${act ? `<button type="button">${act.icon}${esc(act.label)}</button>` : ''}`;
+  el.innerHTML = `<span class="t-msg"><b class="t-h" aria-hidden="true">${opts.error ? 'ERROR' : 'NEXUS'}</b>${esc(msg)}</span>${act ? `<button type="button">${act.icon}${esc(act.label)}</button>` : ''}`;
   if (act) el.querySelector('button')!.onclick = () => { el!.classList.remove('on'); act.run(); };
   requestAnimationFrame(() => el!.classList.add('on'));
   clearTimeout(toastTimer);
