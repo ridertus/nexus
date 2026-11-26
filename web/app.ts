@@ -76,7 +76,9 @@ function numCur(satang: number, unit = '฿') {
   return `<span class="n">${p.neg ? '−' : ''}${p.int}${p.dec ? `<span class="dec">${p.dec}</span>` : ''}</span><span class="cur">${unit}</span>`;
 }
 /** Status chip: the English word is visual, the Thai meaning is read out (spec 7: never colour alone). */
-const statusChip = (cls: 'pos' | 'warn' | 'neg' | 'info', en: string, th: string) =>
+/** Decision 12: nothing recorded yet — no transactions and every account balance is zero. */
+const isNoData = () => svc.snapshot().transactions.length === 0 && svc.getAccounts().every(a => a.balance === 0);
+const statusChip = (cls: 'pos' | 'warn' | 'neg' | 'info' | 'none', en: string, th: string) =>
   `<span class="schip ${cls}"><span aria-hidden="true">${en}</span><span class="sr">${esc(th)}</span></span>`;
 
 function txRow(t: Transaction, m = maps()) {
@@ -194,7 +196,9 @@ function viewHome(): [string, string] {
   const plannedAll = bud.lines.reduce((a, l) => a + l.plan, 0), spentAll = bud.lines.reduce((a, l) => a + l.spent, 0);
   const budgetFast = plannedAll > 0 && (spentAll / plannedAll) * 100 > elapsed * 100 + 10;
   const near = !bad && (budgetFast || leftToday < 0);
-  const chip = bad ? statusChip('neg', 'SHORTFALL', 'สถานะ: เงินไม่พอ')
+  const noData = isNoData();
+  const chip = noData ? statusChip('none', 'NO DATA', 'สถานะ: ยังไม่มีข้อมูล')
+    : bad ? statusChip('neg', 'SHORTFALL', 'สถานะ: เงินไม่พอ')
     : near ? statusChip('warn', 'NEAR LIMIT', 'สถานะ: ใกล้เกินงบ')
     : statusChip('pos', 'ON TRACK', 'สถานะ: ตามแผน');
   const todayPct = dayBudget ? Math.min(100, (todayExp / dayBudget) * 100) : todayExp ? 100 : 0;
@@ -204,7 +208,7 @@ function viewHome(): [string, string] {
     <div class="hero-top"><span class="hl" id="sts-l"><span aria-hidden="true">SAFE TO SPEND · </span><span class="th">${bad ? 'เงินไม่พอสำหรับสิ่งที่กันไว้' : 'ใช้ได้อีกในรอบนี้'}</span></span>${chip}</div>
     <div class="hero-amt ${bad ? 'neg' : ''}" aria-live="polite">${bad ? numCur(-s.shortfall) : numCur(s.safeToSpend)}</div>
     <div class="hero-sub">${bad ? `ขาดอยู่ <b class="neg">${baht(s.shortfall)}</b> — ลองเลื่อนการออมหรือลดค่าใช้จ่าย` : `เฉลี่ย <b>${baht(s.perDay)}</b>/วัน · อีก <b>${s.daysLeft}</b> วัน`} · รอบ ${esc(cycleLabel(s.cycle))}${budgetFast && !bad ? ' · <span class="warn">งบรวมใช้เร็วกว่าแผน</span>' : ''}</div>
-    <div class="cap">
+    ${noData ? '' : `<div class="cap">
       <div class="cap-bar" role="img" aria-label="เงินที่มี ${baht(s.available)} แบ่งเป็นใช้ได้ ${baht(s.safeToSpend)} บิล ${baht(s.reserved.bills)} ออม ${baht(s.reserved.goals)} ภาษี ${baht(s.reserved.tax)}">
         ${s.safeToSpend ? `<i class="free" style="width:${w(s.safeToSpend)}"></i>` : ''}
         ${s.reserved.bills ? `<i class="lock l1" style="width:${w(s.reserved.bills)}"></i>` : ''}
@@ -217,7 +221,7 @@ function viewHome(): [string, string] {
         <span><i class="sw l2" aria-hidden="true"></i>ออม ${baht(s.reserved.goals)}</span>
         <span><i class="sw l3" aria-hidden="true"></i>ภาษี ${baht(s.reserved.tax)}</span>
       </div>
-    </div>
+    </div>`}
     <div class="today">
       <div class="t-top"><span class="hl"><span aria-hidden="true">TODAY · </span><span class="th">${leftToday < 0 ? 'ใช้เกินวันนี้' : 'วันนี้เหลือ'}</span></span><span class="t-val ${leftToday < 0 ? 'over' : ''}">${numCur(leftToday)}</span></div>
       <div class="t-bar" aria-hidden="true"><i class="${leftToday < 0 ? 'over' : ''}" style="width:${todayPct}%"></i></div>
@@ -255,12 +259,12 @@ function viewHome(): [string, string] {
 
   if (!storage.persistent) notes.unshift(`<div class="notice neg">${noteChip('neg')}<span>เบราว์เซอร์นี้ไม่อนุญาตให้เก็บข้อมูล — ข้อมูลจะหายเมื่อปิดหน้านี้</span></div>`);
   // bills
-  const bills = s.unpaidBills.slice(0, 4);
+  const cycleBills = svc.getUpcomingBills();
+  const bills = billOrder(cycleBills).slice(0, 4);
   const billsHtml = svc.getBills().filter(b => b.active).length === 0
     ? emptyBox('NO BILLS', 'ยังไม่มีบิลประจำ', 'เพิ่มค่าห้อง ค่าเน็ต Subscription เพื่อให้ "ใช้ได้" แม่นขึ้น', `<a class="btn sm" href="#plan-bills">เพิ่มบิล</a>`)
-    : bills.length === 0 ? emptyBox('ALL PAID', 'จ่ายครบแล้วรอบนี้', 'ไม่มีบิลค้าง')
+    : bills.length === 0 ? emptyBox('NO BILLS DUE', 'ไม่มีบิลในรอบนี้')
     : `<div class="plates">${bills.map(b => billRow(b, today)).join('')}</div>`;
-  const cycleBills = svc.getUpcomingBills();
 
   // budgets
   const lines = [...bud.lines].sort((a, b) => b.percentUsed - a.percentUsed).slice(0, 4);
@@ -302,7 +306,7 @@ function heroRunway(todayExp: number) {
   const avg = r.flexiblePerDay;
   const meter = avg ? Math.min(100, (todayExp / avg) * 100) : todayExp ? 100 : 0;
   const over = !!avg && todayExp > avg;
-  const chip = r.days === null ? ''
+  const chip = r.days === null ? (isNoData() ? statusChip('none', 'NO DATA', 'สถานะ: ยังไม่มีข้อมูล') : '')
     : short ? statusChip('warn', 'SHORT RUNWAY', 'สถานะ: เงินพอใช้น้อยกว่า 30 วัน')
     : statusChip('pos', 'ON TRACK', 'สถานะ: เงินพอใช้เกิน 30 วัน');
   return `
@@ -326,10 +330,15 @@ function heroRunway(todayExp: number) {
   </section>`;
 }
 
+/** Decision 10: unpaid bills first by due date, then paid ones (by due date). */
+const billOrder = <T extends { paid: boolean; due: string }>(xs: T[]) =>
+  [...xs].sort((a, b) => Number(a.paid) - Number(b.paid) || a.due.localeCompare(b.due));
+
 /** Set by payBill() so the next render plays the pending → paid flip on that plate once. */
 let justPaid: string | null = null;
 
-/** Bill plate (spec 4.5): light body + angled side with amount and pay button; paid = dark body + yellow side. */
+/** Bill plate (spec 4.5): light body + angled side with amount and pay button.
+ *  Paid (Decision 10): dark body, calm grey side with yellow check and PAID mark; flips through yellow once after paying. */
 function billRow(b: { billId: string; name: string; amount: number; due: string; paid: boolean }, today: string) {
   const p = parseDate(b.due);
   const n = daysBetween(today, b.due);
@@ -514,7 +523,7 @@ function viewPlan(sub = 'budget'): [string, string] {
         <div class="tile"><div class="l">Subscription (${subs.length})</div><div class="v">${baht(subs.reduce((a, b) => a + (b.cadence === 'yearly' ? Math.round(b.amount / 12) : b.amount), 0))}</div></div>
       </div>
       <div class="sec">${secH('THIS CYCLE', 'รอบนี้', 'calendar')}
-        ${items.length ? `<div class="plates">${items.map(b => billRow(b, today)).join('')}</div>` : emptyBox('NO BILLS', 'ไม่มีบิลในรอบนี้')}</div>
+        ${items.length ? `<div class="plates">${billOrder(items).map(b => billRow(b, today)).join('')}</div>` : emptyBox('NO BILLS', 'ไม่มีบิลในรอบนี้')}</div>
       <div class="sec">${secH('ALL BILLS', 'บิลทั้งหมด', 'list')}
         ${all.length ? `<div class="card rows">${all.map(b => `<button class="row" data-bill="${b.id}" ${b.active ? '' : 'style="opacity:.55"'}>
           <span class="ic">${ic(b.isSubscription ? 'subs' : 'calendar')}</span>
@@ -549,7 +558,7 @@ function viewMore(sub?: string): [string, string] {
     ${item('#more-settings', 'settings', 'ตั้งค่า', 'รอบเงินเดือน ธีม กันเงินภาษี')}
     ${item('#more-backup', 'backup', 'สำรอง / กู้คืนข้อมูล', prefs.lastBackup ? `ล่าสุด ${U.dMed(prefs.lastBackup)}` : 'ยังไม่เคยสำรอง')}
   </div></div>
-  <div class="sec card pad"><div class="micro">NEXUS // v${APP_VERSION}</div><p class="fine" style="margin-top:6px">ข้อมูลทั้งหมดเก็บในเบราว์เซอร์ของเครื่องนี้เท่านั้น ไม่มีเซิร์ฟเวอร์ ไม่มีบัญชีผู้ใช้ ไฟล์สำรองใช้ร่วมกับ NEXUS CLI ได้</p><div class="tri" style="margin-top:12px"></div></div>`;
+  <div class="sec">${secH('ABOUT', 'เกี่ยวกับ NEXUS', 'phone')}<div class="card pad"><p class="mono" style="font-size:11px;color:var(--ink-3)">NEXUS · PERSONAL FINANCE OS · v${APP_VERSION}</p><p class="fine" style="margin-top:6px">ข้อมูลทั้งหมดเก็บในเบราว์เซอร์ของเครื่องนี้เท่านั้น ไม่มีเซิร์ฟเวอร์ ไม่มีบัญชีผู้ใช้ ไฟล์สำรองใช้ร่วมกับ NEXUS CLI ได้</p><div class="tri" aria-hidden="true" style="margin-top:12px"></div></div></div>`;
   return [moduleHeader({ crumb: 'MORE', th: 'อื่น ๆ', en: 'SYSTEM' }), body];
 }
 
@@ -601,20 +610,23 @@ function viewBackup(): [string, string] {
   const n = svc.snapshot().transactions.length;
   const body = `<div class="sec" style="margin-top:16px">
     <div class="notice">${ic('alert')}<span>ข้อมูลอยู่ในเบราว์เซอร์ของเครื่องนี้เท่านั้น ถ้าล้างข้อมูลเบราว์เซอร์หรือทำเครื่องหาย ข้อมูลจะหาย — ดาวน์โหลดไฟล์สำรองเก็บไว้ใน Google Drive เป็นประจำ</span></div>
-    <div class="card pad" style="margin-top:12px">
-      <div class="micro">BACKUP // ${n} TRANSACTIONS</div>
-      <p style="margin:6px 0 12px">สำรองล่าสุด: <b>${prefs.lastBackup ? U.dMed(prefs.lastBackup) : 'ยังไม่เคย'}</b></p>
+  </div>
+  <div class="sec">${secH('BACKUP', 'สำรองข้อมูล', 'backup')}
+    <div class="card pad">
+      <p style="margin:0 0 12px">สำรองล่าสุด: <b>${prefs.lastBackup ? U.dMed(prefs.lastBackup) : 'ยังไม่เคย'}</b> · <span class="muted">${n} รายการ</span></p>
       <div class="btn-row"><button class="btn primary" data-act="export-json">${ic('backup')}ดาวน์โหลดไฟล์สำรอง (.json)</button>
       <button class="btn" data-act="export-csv">ส่งออก CSV (Excel)</button></div>
     </div>
-    <div class="card pad" style="margin-top:12px">
-      <div class="micro">RESTORE</div>
-      <p class="fine" style="margin:6px 0 12px">กู้คืนจากไฟล์ .json ที่สำรองไว้ (ใช้ไฟล์ nexus.json จาก NEXUS CLI ได้ด้วย) — ข้อมูลในเครื่องนี้จะถูกแทนที่ทั้งหมด</p>
+  </div>
+  <div class="sec">${secH('RESTORE', 'กู้คืนข้อมูล', 'backup')}
+    <div class="card pad">
+      <p class="fine" style="margin:0 0 12px">กู้คืนจากไฟล์ .json ที่สำรองไว้ (ใช้ไฟล์ nexus.json จาก NEXUS CLI ได้ด้วย) — ข้อมูลในเครื่องนี้จะถูกแทนที่ทั้งหมด</p>
       <label class="btn" style="cursor:pointer">เลือกไฟล์สำรอง<input type="file" id="restore" accept=".json,application/json" class="sr"></label>
     </div>
-    <div class="card pad" style="margin-top:12px">
-      <div class="micro">DANGER ZONE</div>
-      <p class="fine" style="margin:6px 0 12px">ลบข้อมูลทั้งหมดในเครื่องนี้แล้วเริ่มใหม่</p>
+  </div>
+  <div class="sec">${secH('DANGER ZONE', 'ล้างข้อมูล', 'alert')}
+    <div class="card pad">
+      <p class="fine" style="margin:0 0 12px">ลบข้อมูลทั้งหมดในเครื่องนี้แล้วเริ่มใหม่</p>
       <button class="btn danger" data-act="reset">ล้างข้อมูลทั้งหมด</button>
     </div></div>`;
   return [moduleHeader({ crumb: 'MORE / BACKUP', th: 'สำรอง / กู้คืนข้อมูล', en: 'BACKUP', back: '#more' }), body];

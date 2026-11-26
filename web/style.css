@@ -34,6 +34,9 @@
   --plate-ink-2: #55564F;
   --plate-highlight: inset 0 1px 0 rgba(255,255,255,.75);
   --done-body: linear-gradient(#5E5E5E, #525252);
+  --paid-side: #3A3A3A;      /* calm paid plate side (Decision 10) */
+  --paid-ink: #EEEEEE;
+  --paid-mark: rgba(255,255,255,.07);
 
   /* signal yellow — primary button · lead bar · key numerals/units only */
   --signal: #FFFA00;
@@ -119,6 +122,9 @@
   --hatch-bar: repeating-linear-gradient(-45deg, #85857F 0 1px, transparent 1px 3.5px);
   --lock-1: #DADAD5; --lock-2: #CBCBC6; --lock-3: #BCBCB7;
   --well: #E4E4E0;
+  --paid-side: var(--plate-lo);
+  --paid-ink: #111111;
+  --paid-mark: rgba(0,0,0,.09);
   --track: #DCDCD7;
   --neg-bg: #FBE9E9;
   --warn-bg: #FFF1E2;
@@ -216,6 +222,7 @@ button { cursor: pointer; background: none; border: 0; }
 .schip.warn { background: #F97501; }
 .schip.neg { background: #C8282C; color: #FFFFFF; }
 .schip.info { background: #22A6F2; }
+.schip.none { background: var(--line-2); color: var(--ink); }
 
 .hero-amt {
   display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 8px; margin: 2px 0;
@@ -264,7 +271,8 @@ button { cursor: pointer; background: none; border: 0; }
 /* stat tiles (spec 4.4) — .tiles/.tile are the same look on Ledger / Plan / Accounts */
 .stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
 .stat, .tile { background: var(--surface); border: 1px solid var(--line); padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.stat .ml .th { display: block; margin-top: 2px; }
+.stat .ml { display: flex; flex-direction: column; gap: 2px; white-space: normal; overflow: visible; }
+.stat .ml .th { display: block; overflow-wrap: anywhere; }
 .sv { font-family: var(--f-num); font-size: 22px; font-weight: 400; line-height: 1.1; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sv .dec { font-size: .6em; color: var(--ink-3); }
 .sv .cur { font-size: 12px; margin-left: 3px; color: var(--ink-3); }
@@ -327,14 +335,21 @@ button.row:active { background: var(--well); }
 .plate.paid .pl-body { background: var(--done-body); box-shadow: none; }
 .plate.paid .pl-n { color: #E9E9E9; text-decoration: line-through; text-decoration-color: rgba(233,233,233,.5); }
 .plate.paid .pl-d { color: #D0D0D0; }
-.plate.paid .pl-side { background: var(--btn-primary); }
-.pl-wm { position: absolute; right: -4px; bottom: -8px; z-index: -1; font-family: var(--f-num); font-size: 34px; font-weight: 700; letter-spacing: -.02em; line-height: 1; color: rgba(0,0,0,.09); pointer-events: none; }
-.pl-ok { width: 24px; height: 24px; flex-shrink: 0; border: 2px solid #111111; border-radius: 50%; display: grid; place-items: center; }
+.plate.paid .pl-side { background: var(--paid-side); }
+.plate.paid .pl-amt { color: var(--paid-ink); }
+.pl-wm { position: absolute; right: -4px; bottom: -8px; z-index: -1; font-family: var(--f-num); font-size: 34px; font-weight: 700; letter-spacing: -.02em; line-height: 1; color: var(--paid-mark); pointer-events: none; }
+/* yellow disc + dark check: a fill, so it reads on the dark and the light side alike */
+.pl-ok { width: 24px; height: 24px; flex-shrink: 0; border-radius: 50%; background: var(--signal); display: grid; place-items: center; }
 .pl-ok svg { width: 12px; height: 12px; fill: none; stroke: #111111; stroke-width: 2; }
-/* pending → paid flip, played once right after paying (.flip is set for that one render) */
-.plate.flip .pl-side::before { content: ""; position: absolute; inset: 0; z-index: -2; background: var(--plate-side); animation: plSide .30s var(--snap) forwards; }
-.plate.flip .pl-wm { animation: plMark .30s var(--snap) backwards; }
-@keyframes plSide { to { opacity: 0; } }
+/* pending → paid, played once right after paying (.flip is set for that one render):
+   the plate side lights up yellow, holds, then settles to the calm paid state */
+.plate.flip .pl-side::before { content: ""; position: absolute; inset: 0; z-index: -3; background: var(--plate-side); animation: plOut .30s var(--snap) forwards; }
+.plate.flip .pl-side::after { content: ""; position: absolute; inset: 0; z-index: -2; background: var(--btn-primary); opacity: 0; animation: plGlow .9s var(--ease) forwards; }
+.plate.flip .pl-amt { animation: plInk .9s var(--ease); }
+.plate.flip .pl-wm { animation: plMark .30s var(--snap) .2s backwards; }
+@keyframes plOut { to { opacity: 0; } }
+@keyframes plGlow { 0% { opacity: 0; } 30% { opacity: 1; } 65% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes plInk { 0%, 65% { color: #111111; } }
 @keyframes plMark { from { opacity: 0; transform: translateY(6px); } }
 
 /* segmented budget bar (10 cells, like the reference's segmented tracks) */
